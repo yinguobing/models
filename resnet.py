@@ -168,13 +168,11 @@ class ResidualBlock(layers.Layer):
 
         # In case the inputs are down sampled.
         if downsample:
-            self.downsample_inputs = layers.Conv2D(filters=filters * 4,
+            self.downsample_inputs = layers.Conv2D(filters=filters,
                                                    kernel_size=(1, 1),
                                                    strides=strides,
-                                                   padding=padding,
+                                                   padding='same',
                                                    activation=None)
-
-        inputs = layers.BatchNormalization()(inputs)
 
     def call(self, inputs):
         # First conv.
@@ -190,7 +188,7 @@ class ResidualBlock(layers.Layer):
         if self.downsample:
             inputs = self.downsample_inputs(inputs)
             inputs = self.BatchNorm()(inputs)
-        x = self.shortcut(x, inputs)
+        x = self.shortcut([x, inputs])
 
         # Output.
         x = self.Activation(self.activation_fun)(x)
@@ -242,10 +240,8 @@ class BottleneckBlock(layers.Layer):
             self.downsample_inputs = layers.Conv2D(filters=filters * 4,
                                                    kernel_size=(1, 1),
                                                    strides=strides,
-                                                   padding=padding,
+                                                   padding='same',
                                                    activation=None)
-
-        inputs = layers.BatchNormalization()(inputs)
 
     def call(self, inputs):
         # First conv.
@@ -267,7 +263,7 @@ class BottleneckBlock(layers.Layer):
         if self.downsample:
             inputs = self.downsample_inputs(inputs)
             inputs = self.BatchNorm()(inputs)
-        x = self.shortcut(x, inputs)
+        x = self.shortcut([x, inputs])
 
         # Output.
         x = self.Activation(self.activation_fun)(x)
