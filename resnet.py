@@ -269,3 +269,61 @@ class BottleneckBlock(layers.Layer):
         x = self.Activation(self.activation_fun)(x)
 
         return x
+
+
+class ResNet18(Model):
+    def __init__(self, output_size=1000):
+        super(ResNet18, self).__init__()
+
+        # Conv1
+        self.conv1 = layers.Conv2D(filters=64, kernel_size=(7, 7), strides=(2, 2),
+                                   padding='same')
+        self.maxpool2d = layers.MaxPooling2D(pool_size=(3, 3), strides=(2, 2),
+                                             padding='same')
+
+        # Conv2
+        self.residual_block_1 = ResidualBlock(filters=64, downsample=True)
+        self.residual_block_2 = ResidualBlock(filters=64)
+
+        # Conv3
+        self.residual_block_3 = ResidualBlock(filters=128, downsample=True)
+        self.residual_block_4 = ResidualBlock(filters=128)
+
+        # Conv4
+        self.residual_block_5 = ResidualBlock(filters=256, downsample=True)
+        self.residual_block_6 = ResidualBlock(filters=256)
+
+        # Conv5
+        self.residual_block_7 = ResidualBlock(filters=512, downsample=True)
+        self.residual_block_8 = ResidualBlock(filters=512)
+
+        # Output
+        self.global_avg_pool = layers.GlobalAveragePooling2D()
+        self.fc = layers.Dense(output_size)
+
+    def call(self, inputs):
+        # Conv1
+        x = self.conv1(inputs)
+        x = self.maxpool2d(x)
+
+        # Conv2
+        x = self.residual_block_1(x)
+        x = self.residual_block_2(x)
+
+        # Conv3
+        x = self.residual_block_3(x)
+        x = self.residual_block_4(x)
+
+        # Conv4
+        x = self.residual_block_5(x)
+        x = self.residual_block_6(x)
+
+        # Conv5
+        x = self.residual_block_7(x)
+        x = self.residual_block_8(x)
+
+        # Output
+        x = self.global_avg_pool(x)
+        x = self.fc(x)
+
+        return x
