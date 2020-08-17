@@ -135,7 +135,64 @@ def make_resnet18(input_shape, output_size=1000):
     return model
 
 
-class ResNet18(Model):
-    def __init__(self, output_size=1000):
-        self._residual_block = residual_block
-        self.
+class ResidualBlock(layers.Layer):
+    def __init__(self, filters=64, downsample=False, activation='relu'):
+        super(ResidualBlock, self).__init__()
+
+        self.activation_fun = activation
+        self.downsample = downsample
+
+        # First conv layer with/without down sampling.
+        strides = (2, 2) if downsample else (1, 1)
+        self.conv2d_1 = layers.Conv2D(filters=filters,
+                                      kernel_size=(3, 3),
+                                      strides=strides,
+                                      padding='same',
+                                      activation=None)
+
+        # Second Conv layer without down sampling.
+        self.conv2d_2 = layers.Conv2D(filters=filters,
+                                      kernel_size=(3, 3),
+                                      strides=(1, 1),
+                                      padding='same',
+                                      activation=None)
+
+        # Batch normalization layer.
+        self.BatchNorm = layers.BatchNormalization
+
+        # Activation layer.
+        self.Activation = layers.Activation
+
+        # Shortcut connection.
+        self.shortcut = layers.Add()
+
+        # In case the inputs are down sampled.
+        if downsample:
+            self.downsample_inputs = layers.Conv2D(filters=filters * 4,
+                                                   kernel_size=(1, 1),
+                                                   strides=strides,
+                                                   padding=padding,
+                                                   activation=None)
+
+        inputs = layers.BatchNormalization()(inputs)
+
+    def call(self, inputs):
+        # First conv.
+        x = self.conv2d_1(inputs)
+        x = self.BatchNorm()(x)
+        x = self.Activation(self.activation_fun)(x)
+
+        # Second conv.
+        x = self.conv2d_2(x)
+        x = self.BatchNorm()(x)
+
+        # Shortcut.
+        if self.downsample:
+            inputs = self.downsample_inputs(inputs)
+            inputs = self.BatchNorm()(inputs)
+        x = self.shortcut(x, inputs)
+
+        # Output.
+        x = self.Activation(self.activation_fun)(x)
+
+        return x
