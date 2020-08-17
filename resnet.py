@@ -196,3 +196,80 @@ class ResidualBlock(layers.Layer):
         x = self.Activation(self.activation_fun)(x)
 
         return x
+
+
+class BottleneckBlock(layers.Layer):
+
+    def __init__(self, filters=64, downsample=False, activation='relu'):
+        super(BottleneckBlock, self).__init__()
+
+        self.activation_fun = activation
+        self.downsample = downsample
+
+        # First conv layer with/without down sampling.
+        strides = (2, 2) if downsample else (1, 1)
+        self.conv2d_1 = layers.Conv2D(filters=filters,
+                                      kernel_size=(1, 1),
+                                      strides=strides,
+                                      padding='same',
+                                      activation=None)
+
+        # Second Conv layer without down sampling.
+        self.conv2d_2 = layers.Conv2D(filters=filters,
+                                      kernel_size=(3, 3),
+                                      strides=(1, 1),
+                                      padding='same',
+                                      activation=None)
+
+        # Third Conv layer without down sampling.
+        self.conv2d_3 = layers.Conv2D(filters=filters*4,
+                                      kernel_size=(1, 1),
+                                      strides=(1, 1),
+                                      padding='same',
+                                      activation=None)
+
+        # Batch normalization layer.
+        self.BatchNorm = layers.BatchNormalization
+
+        # Activation layer.
+        self.Activation = layers.Activation
+
+        # Shortcut connection.
+        self.shortcut = layers.Add()
+
+        # In case the inputs are down sampled.
+        if downsample:
+            self.downsample_inputs = layers.Conv2D(filters=filters * 4,
+                                                   kernel_size=(1, 1),
+                                                   strides=strides,
+                                                   padding=padding,
+                                                   activation=None)
+
+        inputs = layers.BatchNormalization()(inputs)
+
+    def call(self, inputs):
+        # First conv.
+        x = self.conv2d_1(inputs)
+        x = self.BatchNorm()(x)
+        x = self.Activation(self.activation_fun)(x)
+
+        # Second conv.
+        x = self.conv2d_2(x)
+        x = self.BatchNorm()(x)
+        x = self.Activation(self.activation_fun)(x)
+
+        # Third conv.
+        x = self.conv2d_3(x)
+        x = self.BatchNorm()(x)
+        x = self.Activation(self.activation_fun)(x)
+
+        # Shortcut.
+        if self.downsample:
+            inputs = self.downsample_inputs(inputs)
+            inputs = self.BatchNorm()(inputs)
+        x = self.shortcut(x, inputs)
+
+        # Output.
+        x = self.Activation(self.activation_fun)(x)
+
+        return x
