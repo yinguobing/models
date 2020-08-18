@@ -282,7 +282,7 @@ class ResNet18(Model):
                                              padding='same')
 
         # Conv2
-        self.residual_block_1 = ResidualBlock(filters=64, downsample=True)
+        self.residual_block_1 = ResidualBlock(filters=64)
         self.residual_block_2 = ResidualBlock(filters=64)
 
         # Conv3
@@ -327,3 +327,13 @@ class ResNet18(Model):
         x = self.fc(x)
 
         return x
+
+    def prepare_summary(self, input_shape):
+        """Prepare the subclassed model for summary.Check out TensorFlow issue 
+        29132 for the original code.
+
+        Args:
+            input_shape: A shape tuple (integers), not including the batch size.
+        """
+        self.build((1,) + input_shape)
+        self.call(keras.Input(input_shape))

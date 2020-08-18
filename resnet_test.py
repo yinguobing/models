@@ -8,5 +8,5 @@ if __name__ == "__main__":
 
     # Sub classed.
     resnet18_subclassed = ResNet18(1000)
-    resnet18_subclassed(tf.zeros((1, 224, 224, 3)))
+    resnet18_subclassed.prepare_summary((224, 224, 3))
     resnet18_subclassed.summary()
