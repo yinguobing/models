@@ -158,7 +158,9 @@ class ResidualBlock(layers.Layer):
                                       activation=None)
 
         # Batch normalization layer.
-        self.BatchNorm = layers.BatchNormalization
+        self.batch_norm_1 = layers.BatchNormalization()
+        self.batch_norm_2 = layers.BatchNormalization()
+        self.batch_norm_3 = layers.BatchNormalization()
 
         # Activation layer.
         self.Activation = layers.Activation
@@ -177,17 +179,17 @@ class ResidualBlock(layers.Layer):
     def call(self, inputs):
         # First conv.
         x = self.conv2d_1(inputs)
-        x = self.BatchNorm()(x)
+        x = self.batch_norm_1(x)
         x = self.Activation(self.activation_fun)(x)
 
         # Second conv.
         x = self.conv2d_2(x)
-        x = self.BatchNorm()(x)
+        x = self.batch_norm_2(x)
 
         # Shortcut.
         if self.downsample:
             inputs = self.downsample_inputs(inputs)
-            inputs = self.BatchNorm()(inputs)
+            inputs = self.batch_norm_3(inputs)
         x = self.shortcut([x, inputs])
 
         # Output.
@@ -227,7 +229,10 @@ class BottleneckBlock(layers.Layer):
                                       activation=None)
 
         # Batch normalization layer.
-        self.BatchNorm = layers.BatchNormalization
+        self.batch_norm_1 = layers.BatchNormalization()
+        self.batch_norm_2 = layers.BatchNormalization()
+        self.batch_norm_3 = layers.BatchNormalization()
+        self.batch_norm_4 = layers.BatchNormalization()
 
         # Activation layer.
         self.Activation = layers.Activation
@@ -246,23 +251,23 @@ class BottleneckBlock(layers.Layer):
     def call(self, inputs):
         # First conv.
         x = self.conv2d_1(inputs)
-        x = self.BatchNorm()(x)
+        x = self.batch_norm_1(x)
         x = self.Activation(self.activation_fun)(x)
 
         # Second conv.
         x = self.conv2d_2(x)
-        x = self.BatchNorm()(x)
+        x = self.batch_norm_2(x)
         x = self.Activation(self.activation_fun)(x)
 
         # Third conv.
         x = self.conv2d_3(x)
-        x = self.BatchNorm()(x)
+        x = self.batch_norm_3(x)
         x = self.Activation(self.activation_fun)(x)
 
         # Shortcut.
         if self.downsample:
             inputs = self.downsample_inputs(inputs)
-            inputs = self.BatchNorm()(inputs)
+            inputs = self.batch_norm_4(inputs)
         x = self.shortcut([x, inputs])
 
         # Output.
