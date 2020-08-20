@@ -44,17 +44,17 @@ class FusionLayer(layers.Layer):
 
     def __init__(self, filters, upsample=False, activation='relu'):
         self.upsample = upsample
-        self.downsample = layers.Conv2D(filters=filters,
-                                        kernel_size=(3, 3),
-                                        strides=(2, 2),
-                                        padding='same')
-        self.upsample = layers.UpSampling2D(size=(2, 2),
-                                            interpolation='bilinear')
+        self.downsample_layer = layers.Conv2D(filters=filters,
+                                              kernel_size=(3, 3),
+                                              strides=(2, 2),
+                                              padding='same')
+        self.upsample_layer = layers.UpSampling2D(size=(2, 2),
+                                                  interpolation='bilinear')
         self.batch_norm = layers.BatchNormalization()
         self.activation = layers.Activation(activation)
 
     def call(self, inputs):
-        resample = self.upsample if self.upsample is True else self.downsample
+        resample = self.upsample_layer if self.upsample is True else self.downsample_layer
         x = resample(inputs)
         x = self.batch_norm(x)
         x = self.activation(x)
