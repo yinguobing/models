@@ -29,9 +29,6 @@ class HRNBlock(layers.Layer):
 class HRNBlocks(layers.Layer):
     def __init__(self, repeat=1, filters=64, activation='relu'):
         super(HRNBlocks, self).__init__()
-
-        self.activation_fun = activation
-
         self.blocks = [ResidualBlock(filters, activation)
                        for _ in range(repeat)]
 
