@@ -9,8 +9,6 @@ class HRNBlock(layers.Layer):
     def __init__(self, filters=64, activation='relu'):
         super(HRNBlock, self).__init__()
 
-        self.activation_fun = activation
-
         # There are 4 residual blocks in each modularized block.
         self.residual_block_1 = ResidualBlock(filters, activation)
         self.residual_block_2 = ResidualBlock(filters, activation)
