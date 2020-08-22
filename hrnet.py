@@ -18,7 +18,7 @@ class HRNBlock(layers.Layer):
         self.residual_block_4 = ResidualBlock(filters, activation)
 
     def call(self, inputs):
-        x = self.residual_block_1(x)
+        x = self.residual_block_1(inputs)
         x = self.residual_block_2(x)
         x = self.residual_block_3(x)
         x = self.residual_block_4(x)
@@ -143,11 +143,12 @@ class FusionBlock(layers.Layer):
                     _inputs)
 
         # The fused value for each branch.
-        outputs = []
-        for index, fusion_group in enumerate(fusion_values):
-            print(fusion_values)
-            print(fusion_group)
-            outputs.append(self._add_layers_group[index](fusion_group))
+        if columns == 1:
+            outputs = fusion_values
+        else:
+            outputs = []
+            for index, fusion_group in enumerate(fusion_values):
+                outputs.append(self._add_layers_group[index](fusion_group))
 
         return outputs
 
