@@ -241,11 +241,12 @@ class BottleneckBlock(layers.Layer):
         self.shortcut = layers.Add()
 
         # In case the inputs are down sampled.
-        self.match_inputs = layers.Conv2D(filters=filters * 4,
-                                          kernel_size=(1, 1),
-                                          strides=strides,
-                                          padding='same',
-                                          activation=None)
+        if downsample:
+            self.match_inputs = layers.Conv2D(filters=filters * 4,
+                                              kernel_size=(1, 1),
+                                              strides=strides,
+                                              padding='same',
+                                              activation=None)
 
     def call(self, inputs):
         # First conv.
@@ -264,8 +265,9 @@ class BottleneckBlock(layers.Layer):
         x = self.Activation(self.activation_fun)(x)
 
         # Shortcut.
-        inputs = self.match_inputs(inputs)
-        inputs = self.batch_norm_4(inputs)
+        if self.downsample:
+            inputs = self.match_inputs(inputs)
+            inputs = self.batch_norm_4(inputs)
         x = self.shortcut([x, inputs])
 
         # Output.
