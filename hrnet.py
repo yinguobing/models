@@ -144,7 +144,7 @@ class FusionBlock(layers.Layer):
 
         # The fused value for each branch.
         if columns == 1:
-            outputs = fusion_values
+            outputs = [fusion_values[0][0], fusion_values[1][0]]
         else:
             outputs = []
             for index, fusion_group in enumerate(fusion_values):
@@ -221,5 +221,5 @@ class HRNetBody(keras.Model):
 
 if __name__ == "__main__":
     model = HRNetBody()
-    model(tf.zeros((1, 224, 224, 3)))
+    model(tf.zeros((1, 224, 224, 256)))
     model.summary()
