@@ -12,10 +12,10 @@ class HRNBlock(layers.Layer):
         super(HRNBlock, self).__init__()
 
         # There are 4 residual blocks in each modularized block.
-        self.residual_block_1 = ResidualBlock(filters, activation)
-        self.residual_block_2 = ResidualBlock(filters, activation)
-        self.residual_block_3 = ResidualBlock(filters, activation)
-        self.residual_block_4 = ResidualBlock(filters, activation)
+        self.residual_block_1 = ResidualBlock(filters, False, activation)
+        self.residual_block_2 = ResidualBlock(filters, False, activation)
+        self.residual_block_3 = ResidualBlock(filters, False, activation)
+        self.residual_block_4 = ResidualBlock(filters, False, activation)
 
     def call(self, inputs):
         x = self.residual_block_1(inputs)
@@ -29,7 +29,7 @@ class HRNBlock(layers.Layer):
 class HRNBlocks(layers.Layer):
     def __init__(self, repeat=1, filters=64, activation='relu'):
         super(HRNBlocks, self).__init__()
-        self.blocks = [ResidualBlock(filters, activation)
+        self.blocks = [ResidualBlock(filters, False, activation)
                        for _ in range(repeat)]
 
     def call(self, inputs):
@@ -49,14 +49,22 @@ class FusionLayer(layers.Layer):
                                               kernel_size=(3, 3),
                                               strides=(2, 2),
                                               padding='same')
-        self.upsample_layer = layers.UpSampling2D(size=(2, 2),
-                                                  interpolation='bilinear')
+        if upsample:
+            self.upsample_layer = layers.UpSampling2D(size=(2, 2),
+                                                      interpolation='bilinear')
+            self.match_channels = layers.Conv2D(filters=filters,
+                                                kernel_size=(1, 1),
+                                                strides=(1, 1),
+                                                padding='same')
         self.batch_norm = layers.BatchNormalization()
         self.activation = layers.Activation(activation)
 
     def call(self, inputs):
-        resample = self.upsample_layer if self.upsample is True else self.downsample_layer
-        x = resample(inputs)
+        if self.upsample:
+            x = self.match_channels(inputs)
+            x = self.upsample_layer(x)
+        else:
+            x = self.downsample_layer(inputs)
         x = self.batch_norm(x)
         x = self.activation(x)
 
@@ -81,47 +89,44 @@ class FusionBlock(layers.Layer):
     layer. Every cell whose row < column is a down sampling cell, whose row ==
     column is a identity cell, and the rest are up sampling cells.
 
-    |----------|----------|----------|
-    | identity |    up    |    up    |
-    |----------|----------|----------|
-    |   down   | identity |    up    |
-    |----------|----------|----------|
-    |   down   |   down   | identity |
-    |----------|----------|----------|
-    |   down   |   down   |   down   |
-    |----------|----------|----------|
-
+             B1         B2         B3         B4
+        |----------|----------|----------|----------|
+    B1  | identity |   down   |   down   |   down   |
+        |----------|----------|----------|----------|
+    B2  |    up    | identity |   down   |   down   |
+        |----------|----------|----------|----------|
+    B3  |    up    |    up    | identity |   down   |
+        |----------|----------|----------|----------|
     """
 
-    def __init__(self, filters, stage=1, activation='relu'):
+    def __init__(self, filters, branches_in, branches_out, activation='relu'):
         super(FusionBlock, self).__init__()
-        # Construct the fusion grid.
-        columns = stage
-        rows = stage + 1
-        self._fusion_function_grid = []
+        # Construct the fusion layers.
+        self._fusion_grid = []
 
-        for row in range(rows):
-            fusion_group = []
-            for column in range(columns):
+        for row in range(branches_in):
+            fusion_layers = []
+            for column in range(branches_out):
                 if column == row:
-                    fusion_group.append(Identity())
-                elif column < row:
+                    fusion_layers.append(Identity())
+                elif column > row:
                     # Down sampling.
-                    fusion_group.append(FusionLayer(filters * pow(2, row),
-                                                    activation))
+                    fusion_layers.append(FusionLayer(filters * pow(2, column),
+                                                     False, activation))
                 else:
                     # Up sampling.
-                    fusion_group.append(FusionLayer(filters * pow(2, row),
-                                                    True, activation))
-            self._fusion_function_grid.append(fusion_group)
+                    fusion_layers.append(FusionLayer(filters * pow(2, column),
+                                                     True, activation))
 
-        self._add_layers_group = [layers.Add() for _ in range(rows)]
+            self._fusion_grid.append(fusion_layers)
+
+        self._add_layers_group = [layers.Add() for _ in range(branches_out)]
 
     def call(self, inputs):
         """Fuse the last layer's outputs. The inputs should be a list of the
         last layers output tensors in order of branches."""
-        rows = len(self._fusion_function_grid)
-        columns = rows - 1
+        rows = len(self._fusion_grid)
+        columns = len(self._fusion_grid[0])
 
         # Every cell in the fusion grid has an output value.
         fusion_values = [[None for _ in range(columns)] for _ in range(rows)]
@@ -129,26 +134,23 @@ class FusionBlock(layers.Layer):
         for row in range(rows):
             for column in range(columns):
                 # The input will be different for different cells.
-                if column == row:
+                if column == row or column == 0:
                     # The input is the branch output.
-                    _inputs = inputs[row]
-                elif column < row:
-                    # Down sampling. The input is the fusion value of upper cell.
-                    _inputs = fusion_values[row - 1][column]
-                elif column > row:
-                    # Up sampling. The input is the fusion value of the lower cell.
-                    _inputs = fusion_values[row + 1][column]
+                    x = inputs[row]
+                else:
+                    # The input is the fusion value of the left cell.
+                    x = fusion_values[row][column - 1]
 
-                fusion_values[row][column] = self._fusion_function_grid[row][column](
-                    _inputs)
+                fusion_values[row][column] = self._fusion_grid[row][column](x)
 
         # The fused value for each branch.
-        if columns == 1:
-            outputs = [fusion_values[0][0], fusion_values[1][0]]
+        if rows == 1:
+            outputs = [fusion_values[0][0], fusion_values[0][1]]
         else:
             outputs = []
-            for index, fusion_group in enumerate(fusion_values):
-                outputs.append(self._add_layers_group[index](fusion_group))
+            fusion_values = [list(v) for v in zip(*fusion_values)]
+            for index, values in enumerate(fusion_values):
+                outputs.append(self._add_layers_group[index](values))
 
         return outputs
 
@@ -168,20 +170,20 @@ class HRNetBody(keras.Model):
                                         padding='same')
         self.s1_batch_norm = layers.BatchNormalization()
 
-        self.s1_fusion = FusionBlock(filters, 1)
+        self.s1_fusion = FusionBlock(filters, branches_in=1, branches_out=2)
 
         # Stage 2
         self.s2_b1_block = HRNBlock(filters)
         self.s2_b2_block = HRNBlock(filters*2)
 
-        self.s2_fusion = FusionBlock(filters, 2)
+        self.s2_fusion = FusionBlock(filters, branches_in=2, branches_out=3)
 
         # Stage 3
         self.s3_b1_blocks = HRNBlocks(4, filters)
         self.s3_b2_blocks = HRNBlocks(4, filters*2)
         self.s3_b3_blocks = HRNBlocks(4, filters*4)
 
-        self.s3_fusion = FusionBlock(filters, 3)
+        self.s3_fusion = FusionBlock(filters, branches_in=3, branches_out=4)
 
         # Stage 4
         self.s4_b1_blocks = HRNBlocks(3, filters)
@@ -221,5 +223,5 @@ class HRNetBody(keras.Model):
 
 if __name__ == "__main__":
     model = HRNetBody()
-    model(tf.zeros((1, 224, 224, 256)))
+    model(tf.zeros((1, 256, 256, 256)))
     model.summary()
