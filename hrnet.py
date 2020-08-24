@@ -8,8 +8,8 @@ from resnet import BottleneckBlock, ResidualBlock
 
 
 class HRNBlock(layers.Layer):
-    def __init__(self, filters=64, activation='relu'):
-        super(HRNBlock, self).__init__()
+    def __init__(self, filters=64, activation='relu', **kwargs):
+        super(HRNBlock, self).__init__(**kwargs)
 
         # There are 4 residual blocks in each modularized block.
         self.residual_block_1 = ResidualBlock(filters, False, activation)
@@ -27,8 +27,8 @@ class HRNBlock(layers.Layer):
 
 
 class HRNBlocks(layers.Layer):
-    def __init__(self, repeat=1, filters=64, activation='relu'):
-        super(HRNBlocks, self).__init__()
+    def __init__(self, repeat=1, filters=64, activation='relu', **kwargs):
+        super(HRNBlocks, self).__init__(**kwargs)
         self.blocks = [ResidualBlock(filters, False, activation)
                        for _ in range(repeat)]
 
@@ -42,8 +42,8 @@ class HRNBlocks(layers.Layer):
 class FusionLayer(layers.Layer):
     """A fusion layer actually do two things: resize the maps, match the channels"""
 
-    def __init__(self, filters, upsample=False, activation='relu'):
-        super(FusionLayer, self).__init__()
+    def __init__(self, filters, upsample=False, activation='relu', **kwargs):
+        super(FusionLayer, self).__init__(**kwargs)
         self.upsample = upsample
         self.downsample_layer = layers.Conv2D(filters=filters,
                                               kernel_size=(3, 3),
@@ -74,8 +74,8 @@ class FusionLayer(layers.Layer):
 class Identity(layers.Layer):
     """A identity layer do NOT modify the tensors."""
 
-    def __init__(self):
-        super(Identity, self).__init__()
+    def __init__(self, **kwargs):
+        super(Identity, self).__init__(**kwargs)
 
     def call(self, inputs):
         return tf.identity(inputs)
@@ -99,8 +99,8 @@ class FusionBlock(layers.Layer):
         |----------|----------|----------|----------|
     """
 
-    def __init__(self, filters, branches_in, branches_out, activation='relu'):
-        super(FusionBlock, self).__init__()
+    def __init__(self, filters, branches_in, branches_out, activation='relu', **kwargs):
+        super(FusionBlock, self).__init__(**kwargs)
         # Construct the fusion layers.
         self._fusion_grid = []
 
@@ -167,8 +167,8 @@ class FusionBlock(layers.Layer):
 
 
 class HRNetBody(keras.Model):
-    def __init__(self, filters=64):
-        super(HRNetBody, self).__init__()
+    def __init__(self, filters=64, **kwargs):
+        super(HRNetBody, self).__init__(**kwargs)
 
         # Stage 1
         self.s1_bottleneck_1 = BottleneckBlock(64)
@@ -181,26 +181,29 @@ class HRNetBody(keras.Model):
                                         padding='same')
         self.s1_batch_norm = layers.BatchNormalization()
 
-        self.s1_fusion = FusionBlock(filters, branches_in=1, branches_out=2)
+        self.s1_fusion = FusionBlock(filters, branches_in=1, branches_out=2,
+                                     name="fusion_1")
 
         # Stage 2
-        self.s2_b1_block = HRNBlock(filters)
-        self.s2_b2_block = HRNBlock(filters*2)
+        self.s2_b1_block = HRNBlock(filters, name="s2_b1")
+        self.s2_b2_block = HRNBlock(filters*2, name="s2_b2")
 
-        self.s2_fusion = FusionBlock(filters, branches_in=2, branches_out=3)
+        self.s2_fusion = FusionBlock(filters, branches_in=2, branches_out=3,
+                                     name="fusion_2")
 
         # Stage 3
-        self.s3_b1_blocks = HRNBlocks(4, filters)
-        self.s3_b2_blocks = HRNBlocks(4, filters*2)
-        self.s3_b3_blocks = HRNBlocks(4, filters*4)
+        self.s3_b1_blocks = HRNBlocks(4, filters, name="s3_b1")
+        self.s3_b2_blocks = HRNBlocks(4, filters*2, name="s3_b2")
+        self.s3_b3_blocks = HRNBlocks(4, filters*4, name="s3_b3")
 
-        self.s3_fusion = FusionBlock(filters, branches_in=3, branches_out=4)
+        self.s3_fusion = FusionBlock(filters, branches_in=3, branches_out=4,
+                                     name="fusion_3")
 
         # Stage 4
-        self.s4_b1_blocks = HRNBlocks(3, filters)
-        self.s4_b2_blocks = HRNBlocks(3, filters*2)
-        self.s4_b3_blocks = HRNBlocks(3, filters*4)
-        self.s4_b4_blocks = HRNBlocks(3, filters*8)
+        self.s4_b1_blocks = HRNBlocks(3, filters, name="s4_b1")
+        self.s4_b2_blocks = HRNBlocks(3, filters*2, name="s4_b2")
+        self.s4_b3_blocks = HRNBlocks(3, filters*4, name="s4_b3")
+        self.s4_b4_blocks = HRNBlocks(3, filters*8, name="s4_b4")
 
     def call(self, inputs):
         # Stage 1
