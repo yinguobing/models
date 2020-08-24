@@ -7,6 +7,31 @@ from tensorflow.keras import layers
 from resnet import BottleneckBlock, ResidualBlock
 
 
+class HRN1stStage(layers.Layer):
+    def __init__(self, filters=64, activation='relu', **kwargs):
+        super(HRN1stStage, self).__init__(**kwargs)
+
+        self.bottleneck_1 = BottleneckBlock(64)
+        self.bottleneck_2 = BottleneckBlock(64)
+        self.bottleneck_3 = BottleneckBlock(64)
+        self.bottleneck_4 = BottleneckBlock(64)
+        self.conv3x3 = layers.Conv2D(filters=filters,
+                                     kernel_size=(3, 3),
+                                     strides=(1, 1),
+                                     padding='same')
+        self.s1_batch_norm = layers.BatchNormalization()
+
+    def call(self, inputs):
+        x = self.bottleneck_1(inputs)
+        x = self.bottleneck_2(x)
+        x = self.bottleneck_3(x)
+        x = self.bottleneck_4(x)
+        x = self.conv3x3(x)
+        x = self.s1_batch_norm(x)
+
+        return x
+
+
 class HRNBlock(layers.Layer):
     def __init__(self, filters=64, activation='relu', **kwargs):
         super(HRNBlock, self).__init__(**kwargs)
@@ -171,15 +196,7 @@ class HRNetBody(keras.Model):
         super(HRNetBody, self).__init__(**kwargs)
 
         # Stage 1
-        self.s1_bottleneck_1 = BottleneckBlock(64)
-        self.s1_bottleneck_2 = BottleneckBlock(64)
-        self.s1_bottleneck_3 = BottleneckBlock(64)
-        self.s1_bottleneck_4 = BottleneckBlock(64)
-        self.s1_conv3x3 = layers.Conv2D(filters=filters,
-                                        kernel_size=(3, 3),
-                                        strides=(1, 1),
-                                        padding='same')
-        self.s1_batch_norm = layers.BatchNormalization()
+        self.s1_b1_block = HRN1stStage(filters, name="s1_b1")
 
         self.s1_fusion = FusionBlock(filters, branches_in=1, branches_out=2,
                                      name="fusion_1")
@@ -207,12 +224,7 @@ class HRNetBody(keras.Model):
 
     def call(self, inputs):
         # Stage 1
-        x = self.s1_bottleneck_1(inputs)
-        x = self.s1_bottleneck_2(x)
-        x = self.s1_bottleneck_3(x)
-        x = self.s1_bottleneck_4(x)
-        x = self.s1_conv3x3(x)
-        x = self.s1_batch_norm(x)
+        x = self.s1_b1_block(inputs)
         x = self.s1_fusion([x])
 
         # Stage 2
