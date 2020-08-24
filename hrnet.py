@@ -91,11 +91,11 @@ class FusionBlock(layers.Layer):
 
              B1         B2         B3         B4
         |----------|----------|----------|----------|
-    B1  | identity |   down   |   down   |   down   |
+    B1  | identity |    ->    |    ->    |    ->    |
         |----------|----------|----------|----------|
-    B2  |    up    | identity |   down   |   down   |
+    B2  |    <-    | identity |    ->    |    ->    |
         |----------|----------|----------|----------|
-    B3  |    up    |    up    | identity |   down   |
+    B3  |    <-    |    <-    | identity |    ->    |
         |----------|----------|----------|----------|
     """
 
@@ -123,8 +123,7 @@ class FusionBlock(layers.Layer):
         self._add_layers_group = [layers.Add() for _ in range(branches_out)]
 
     def call(self, inputs):
-        """Fuse the last layer's outputs. The inputs should be a list of the
-        last layers output tensors in order of branches."""
+        """Fuse the last layer's outputs. The inputs should be a list of the last layers output tensors in order of branches."""
         rows = len(self._fusion_grid)
         columns = len(self._fusion_grid[0])
 
@@ -132,15 +131,26 @@ class FusionBlock(layers.Layer):
         fusion_values = [[None for _ in range(columns)] for _ in range(rows)]
 
         for row in range(rows):
+            # The down sampling operation excutes from left to right.
             for column in range(columns):
                 # The input will be different for different cells.
-                if column == row or column == 0:
+                if column < row:
+                    # Skip all up samping cells.
+                    continue
+                elif column == row:
                     # The input is the branch output.
                     x = inputs[row]
-                else:
-                    # The input is the fusion value of the left cell.
+                elif column > row:
+                    # Down sampling, the input is the fusion value of the left cell.
                     x = fusion_values[row][column - 1]
+                fusion_values[row][column] = self._fusion_grid[row][column](x)
 
+            # The upsampling operation excutes in the opposite direction.
+            for column in reversed(range(columns)):
+                if column >= row:
+                    # Skip all down samping and identity cells.
+                    continue
+                x = fusion_values[row][column + 1]
                 fusion_values[row][column] = self._fusion_grid[row][column](x)
 
         # The fused value for each branch.
@@ -149,6 +159,7 @@ class FusionBlock(layers.Layer):
         else:
             outputs = []
             fusion_values = [list(v) for v in zip(*fusion_values)]
+
             for index, values in enumerate(fusion_values):
                 outputs.append(self._add_layers_group[index](values))
 
@@ -219,9 +230,3 @@ class HRNetBody(keras.Model):
         x_4 = self.s4_b4_blocks(x[3])
 
         return [x_1, x_2, x_3, x_4]
-
-
-if __name__ == "__main__":
-    model = HRNetBody()
-    model(tf.zeros((1, 256, 256, 256)))
-    model.summary()
