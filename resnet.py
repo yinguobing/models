@@ -198,6 +198,25 @@ class ResidualBlock(layers.Layer):
         return x
 
 
+class ResidualBlocks(layers.Layer):
+    """A bunch of Residual Blocks. Down sampling is only performed by the first 
+    block if required."""
+
+    def __init__(self, num_blocks=2, filters=64, downsample=False,
+                 activation='relu', **kwargs):
+        super(ResidualBlocks, self).__init__(**kwargs)
+        self.block_1 = ResidualBlock(filters, downsample, activation)
+        self.blocks = [ResidualBlock(filters, False, activation)
+                       for _ in range(num_blocks - 1)]
+
+    def call(self, inputs):
+        x = self.block_1(inputs)
+        for block in self.blocks:
+            x = block(x)
+
+        return x
+
+
 class BottleneckBlock(layers.Layer):
 
     def __init__(self, filters=64, downsample=False, activation='relu', **kwargs):
@@ -287,23 +306,20 @@ class ResNet18(Model):
                                              padding='same')
 
         # Conv2
-        self.residual_block_1 = ResidualBlock(filters=64, name="conv2_1")
-        self.residual_block_2 = ResidualBlock(filters=64, name="conv2_2")
+        self.residual_blocks_1 = ResidualBlocks(2, filters=64, downsample=False,
+                                                name="conv2")
 
         # Conv3
-        self.residual_block_3 = ResidualBlock(filters=128, downsample=True,
-                                              name="conv3_1")
-        self.residual_block_4 = ResidualBlock(filters=128, name="conv3_2")
+        self.residual_blocks_2 = ResidualBlocks(2, filters=128, downsample=True,
+                                                name="conv3")
 
         # Conv4
-        self.residual_block_5 = ResidualBlock(filters=256, downsample=True,
-                                              name="conv4_1")
-        self.residual_block_6 = ResidualBlock(filters=256, name="conv4_2")
+        self.residual_blocks_3 = ResidualBlocks(2, filters=256, downsample=True,
+                                                name="conv4")
 
         # Conv5
-        self.residual_block_7 = ResidualBlock(filters=512, downsample=True,
-                                              name="conv5_1")
-        self.residual_block_8 = ResidualBlock(filters=512, name="conv5_2")
+        self.residual_blocks_4 = ResidualBlocks(2, filters=512, downsample=True,
+                                                name="conv5")
 
         # Output
         self.global_avg_pool = layers.GlobalAveragePooling2D()
@@ -315,20 +331,16 @@ class ResNet18(Model):
         x = self.maxpool2d(x)
 
         # Conv2
-        x = self.residual_block_1(x)
-        x = self.residual_block_2(x)
+        x = self.residual_blocks_1(x)
 
         # Conv3
-        x = self.residual_block_3(x)
-        x = self.residual_block_4(x)
+        x = self.residual_blocks_2(x)
 
         # Conv4
-        x = self.residual_block_5(x)
-        x = self.residual_block_6(x)
+        x = self.residual_blocks_3(x)
 
         # Conv5
-        x = self.residual_block_7(x)
-        x = self.residual_block_8(x)
+        x = self.residual_blocks_4(x)
 
         # Output
         x = self.global_avg_pool(x)
