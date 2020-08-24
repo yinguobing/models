@@ -314,15 +314,41 @@ class BottleneckBlocks(layers.Layer):
         return x
 
 
+class RSNHead(layers.Layer):
+    def __init__(self, filters=64, kernel_size=(7, 7), strides=(2, 2),
+                 pool_size=(3, 3), **kwargs):
+        super(RSNHead, self).__init__(**kwargs)
+        self.conv1 = layers.Conv2D(filters=64, kernel_size=(7, 7), strides=(2, 2),
+                                   padding='same')
+        self.maxpool2d = layers.MaxPooling2D(pool_size=(3, 3), strides=(2, 2),
+                                             padding='same')
+
+    def call(self, inputs):
+        x = self.conv1(inputs)
+        x = self.maxpool2d(x)
+
+        return x
+
+
+class RSNTail(layers.Layer):
+    def __init__(self, output_size, **kwargs):
+        super(RSNTail, self).__init__(**kwargs)
+        self.global_avg_pool = layers.GlobalAveragePooling2D()
+        self.fc = layers.Dense(output_size)
+
+    def call(self, inputs):
+        x = self.global_avg_pool(inputs)
+        x = self.fc(x)
+
+        return x
+
+
 class ResNet18(Model):
     def __init__(self, output_size=1000, **kwargs):
         super(ResNet18, self).__init__(**kwargs)
 
         # Conv1
-        self.conv1 = layers.Conv2D(filters=64, kernel_size=(7, 7), strides=(2, 2),
-                                   padding='same')
-        self.maxpool2d = layers.MaxPooling2D(pool_size=(3, 3), strides=(2, 2),
-                                             padding='same')
+        self.conv_1 = RSNHead(filters=64, kernel_size=(7, 7), strides=(2, 2))
 
         # Conv2
         self.residual_blocks_1 = ResidualBlocks(2, filters=64, downsample=False,
@@ -341,13 +367,11 @@ class ResNet18(Model):
                                                 name="conv5")
 
         # Output
-        self.global_avg_pool = layers.GlobalAveragePooling2D()
-        self.fc = layers.Dense(output_size)
+        self.tail = RSNTail(output_size)
 
     def call(self, inputs):
         # Conv1
-        x = self.conv1(inputs)
-        x = self.maxpool2d(x)
+        x = self.conv_1(inputs)
 
         # Conv2
         x = self.residual_blocks_1(x)
@@ -362,8 +386,7 @@ class ResNet18(Model):
         x = self.residual_blocks_4(x)
 
         # Output
-        x = self.global_avg_pool(x)
-        x = self.fc(x)
+        x = self.tail(x)
 
         return x
 
