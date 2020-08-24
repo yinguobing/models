@@ -295,6 +295,25 @@ class BottleneckBlock(layers.Layer):
         return x
 
 
+class BottleneckBlocks(layers.Layer):
+    """A bunch of Bottleneck Blocks. Down sampling is only performed by the 
+    first block if required."""
+
+    def __init__(self, num_blocks=3, filters=64, downsample=False,
+                 activation='relu', **kwargs):
+        super(BottleneckBlocks, self).__init__(**kwargs)
+        self.block_1 = BottleneckBlock(filters, downsample, activation)
+        self.blocks = [BottleneckBlock(filters, False, activation)
+                       for _ in range(num_blocks - 1)]
+
+    def call(self, inputs):
+        x = self.block_1(inputs)
+        for block in self.blocks:
+            x = block(x)
+
+        return x
+
+
 class ResNet18(Model):
     def __init__(self, output_size=1000, **kwargs):
         super(ResNet18, self).__init__(**kwargs)
