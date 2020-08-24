@@ -260,12 +260,11 @@ class BottleneckBlock(layers.Layer):
         self.shortcut = layers.Add()
 
         # In case the inputs are down sampled.
-        if downsample:
-            self.match_inputs = layers.Conv2D(filters=filters * 4,
-                                              kernel_size=(1, 1),
-                                              strides=strides,
-                                              padding='same',
-                                              activation=None)
+        self.match_inputs = layers.Conv2D(filters=filters*4,
+                                          kernel_size=(1, 1),
+                                          strides=strides,
+                                          padding='same',
+                                          activation=None)
 
     def call(self, inputs):
         # First conv.
@@ -284,9 +283,8 @@ class BottleneckBlock(layers.Layer):
         x = self.Activation(self.activation_fun)(x)
 
         # Shortcut.
-        if self.downsample:
-            inputs = self.match_inputs(inputs)
-            inputs = self.batch_norm_4(inputs)
+        inputs = self.match_inputs(inputs)
+        inputs = self.batch_norm_4(inputs)
         x = self.shortcut([x, inputs])
 
         # Output.
@@ -343,28 +341,26 @@ class RSNTail(layers.Layer):
         return x
 
 
-class ResNet18(Model):
-    def __init__(self, output_size=1000, **kwargs):
-        super(ResNet18, self).__init__(**kwargs)
+class ResNet(Model):
+    def __init__(self, block_size_list, bottleneck=False, output_size=1000, **kwargs):
+        # Make sure the network setup is valid.
+        assert len(block_size_list) == 4, \
+            "Blocks size should be a list of 4 int numbers."
+
+        super(ResNet, self).__init__(**kwargs)
+        BlockClass = BottleneckBlocks if bottleneck else ResidualBlocks
+        filters_list = [64, 128, 256, 512]
 
         # Conv1
         self.conv_1 = RSNHead(filters=64, kernel_size=(7, 7), strides=(2, 2))
 
-        # Conv2
-        self.residual_blocks_1 = ResidualBlocks(2, filters=64, downsample=False,
-                                                name="conv2")
-
-        # Conv3
-        self.residual_blocks_2 = ResidualBlocks(2, filters=128, downsample=True,
-                                                name="conv3")
-
-        # Conv4
-        self.residual_blocks_3 = ResidualBlocks(2, filters=256, downsample=True,
-                                                name="conv4")
-
-        # Conv5
-        self.residual_blocks_4 = ResidualBlocks(2, filters=512, downsample=True,
-                                                name="conv5")
+        # Conv2 -> Conv5
+        self.convs = []
+        for stage, num_blocks, filters in zip(range(4), block_size_list, filters_list):
+            downsample = True if stage > 0 else False
+            self.convs.append(BlockClass(num_blocks=num_blocks, filters=filters,
+                                         downsample=downsample,
+                                         activation='relu'))
 
         # Output
         self.tail = RSNTail(output_size)
@@ -373,17 +369,9 @@ class ResNet18(Model):
         # Conv1
         x = self.conv_1(inputs)
 
-        # Conv2
-        x = self.residual_blocks_1(x)
-
-        # Conv3
-        x = self.residual_blocks_2(x)
-
-        # Conv4
-        x = self.residual_blocks_3(x)
-
-        # Conv5
-        x = self.residual_blocks_4(x)
+        # Conv2 -> Conv5
+        for conv in self.convs:
+            x = conv(x)
 
         # Output
         x = self.tail(x)
