@@ -4,7 +4,7 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
 
-from resnet import BottleneckBlock, ResidualBlock
+from models.resnet import BottleneckBlock, ResidualBlock
 
 
 class HRN1stStage(layers.Layer):
