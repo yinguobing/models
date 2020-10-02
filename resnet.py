@@ -347,9 +347,18 @@ class RSNHead(layers.Layer):
     def __init__(self, filters=64, kernel_size=(7, 7), strides=(2, 2),
                  pool_size=(3, 3), **kwargs):
         super(RSNHead, self).__init__(**kwargs)
-        self.conv1 = layers.Conv2D(filters=64, kernel_size=(7, 7), strides=(2, 2),
+        self.filters = filters
+        self.kernel_size = kernel_size
+        self.strides = strides
+        self.pool_size = pool_size
+
+    def build(self, input_shape):
+        self.conv1 = layers.Conv2D(filters=self.filters,
+                                   kernel_size=self.kernel_size,
+                                   strides=self.strides,
                                    padding='same')
-        self.maxpool2d = layers.MaxPooling2D(pool_size=(3, 3), strides=(2, 2),
+        self.maxpool2d = layers.MaxPooling2D(pool_size=self.pool_size,
+                                             strides=self.strides,
                                              padding='same')
 
     def call(self, inputs):
@@ -358,18 +367,35 @@ class RSNHead(layers.Layer):
 
         return x
 
+    def get_config(self):
+        config = super(RSNHead, self).get_config()
+        config.update({"filters": self.filters,
+                       "kernel_size": self.kernel_size,
+                       "strides": self.strides,
+                       "pool_size": self.pool_size})
+        return configZ
+
 
 class RSNTail(layers.Layer):
     def __init__(self, output_size, **kwargs):
         super(RSNTail, self).__init__(**kwargs)
+        self.output_size = output_size
+
+    def build(self, input_shape):
         self.global_avg_pool = layers.GlobalAveragePooling2D()
-        self.fc = layers.Dense(output_size)
+        self.fc = layers.Dense(self.output_size)
 
     def call(self, inputs):
         x = self.global_avg_pool(inputs)
         x = self.fc(x)
 
         return x
+
+    def get_config(self):
+        config = super(RSNTail, self).get_config()
+        config.update({"output_size": self.output_size})
+
+        return config
 
 
 class ResNet(Model):
