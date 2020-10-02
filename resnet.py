@@ -139,19 +139,25 @@ class ResidualBlock(layers.Layer):
     def __init__(self, filters=64, downsample=False, activation='relu', **kwargs):
         super(ResidualBlock, self).__init__(**kwargs)
 
+        self.filters = filters
         self.activation_fun = activation
         self.downsample = downsample
 
+    def build(self, input_shape):
+        """
+        The build() function makes lazily creating weights possible.
+        """
+
         # First conv layer with/without down sampling.
-        strides = (2, 2) if downsample else (1, 1)
-        self.conv2d_1 = layers.Conv2D(filters=filters,
+        strides = (2, 2) if self.downsample else (1, 1)
+        self.conv2d_1 = layers.Conv2D(filters=self.filters,
                                       kernel_size=(3, 3),
                                       strides=strides,
                                       padding='same',
                                       activation=None)
 
         # Second Conv layer without down sampling.
-        self.conv2d_2 = layers.Conv2D(filters=filters,
+        self.conv2d_2 = layers.Conv2D(filters=self.filters,
                                       kernel_size=(3, 3),
                                       strides=(1, 1),
                                       padding='same',
@@ -169,8 +175,8 @@ class ResidualBlock(layers.Layer):
         self.shortcut = layers.Add()
 
         # In case the inputs are down sampled.
-        if downsample:
-            self.downsample_inputs = layers.Conv2D(filters=filters,
+        if self.downsample:
+            self.downsample_inputs = layers.Conv2D(filters=self.filters,
                                                    kernel_size=(1, 1),
                                                    strides=strides,
                                                    padding='same',
@@ -197,6 +203,16 @@ class ResidualBlock(layers.Layer):
 
         return x
 
+    def get_config(self):
+        """
+        Override this function so keras can serialize the layer.
+        """
+        config = super(ResidualBlock, self).get_config()
+        config.update({"filters": self.filters,
+                       "downsample": self.downsample,
+                       "activation": self.activation_fun})
+        return config
+
 
 class ResidualBlocks(layers.Layer):
     """A bunch of Residual Blocks. Down sampling is only performed by the first 
@@ -215,6 +231,7 @@ class ResidualBlocks(layers.Layer):
             x = block(x)
 
         return x
+    
 
 
 class BottleneckBlock(layers.Layer):
