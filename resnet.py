@@ -257,26 +257,28 @@ class BottleneckBlock(layers.Layer):
     def __init__(self, filters=64, downsample=False, activation='relu', **kwargs):
         super(BottleneckBlock, self).__init__(**kwargs)
 
-        self.activation_fun = activation
+        self.filters = filters
         self.downsample = downsample
+        self.activation_fun = activation
 
+    def build(self, input_shape):
         # First conv layer with/without down sampling.
-        strides = (2, 2) if downsample else (1, 1)
-        self.conv2d_1 = layers.Conv2D(filters=filters,
+        strides = (2, 2) if self.downsample else (1, 1)
+        self.conv2d_1 = layers.Conv2D(filters=self.filters,
                                       kernel_size=(1, 1),
                                       strides=strides,
                                       padding='same',
                                       activation=None)
 
         # Second Conv layer without down sampling.
-        self.conv2d_2 = layers.Conv2D(filters=filters,
+        self.conv2d_2 = layers.Conv2D(filters=self.filters,
                                       kernel_size=(3, 3),
                                       strides=(1, 1),
                                       padding='same',
                                       activation=None)
 
         # Third Conv layer without down sampling.
-        self.conv2d_3 = layers.Conv2D(filters=filters*4,
+        self.conv2d_3 = layers.Conv2D(filters=self.filters*4,
                                       kernel_size=(1, 1),
                                       strides=(1, 1),
                                       padding='same',
@@ -295,11 +297,13 @@ class BottleneckBlock(layers.Layer):
         self.shortcut = layers.Add()
 
         # In case the inputs are down sampled.
-        self.match_inputs = layers.Conv2D(filters=filters*4,
+        self.match_inputs = layers.Conv2D(filters=self.filters*4,
                                           kernel_size=(1, 1),
                                           strides=strides,
                                           padding='same',
                                           activation=None)
+
+        self.built = True
 
     def call(self, inputs):
         # First conv.
@@ -327,6 +331,14 @@ class BottleneckBlock(layers.Layer):
 
         return x
 
+    def get_config(self):
+        config = super(BottleneckBlock, self).get_config()
+        config.update({"filters": self.filters,
+                       "downsample": self.downsample,
+                       "activation": self.activation_fun})
+
+        return config
+
 
 class BottleneckBlocks(layers.Layer):
     """A bunch of Bottleneck Blocks. Down sampling is only performed by the 
@@ -335,9 +347,19 @@ class BottleneckBlocks(layers.Layer):
     def __init__(self, num_blocks=3, filters=64, downsample=False,
                  activation='relu', **kwargs):
         super(BottleneckBlocks, self).__init__(**kwargs)
-        self.block_1 = BottleneckBlock(filters, downsample, activation)
-        self.blocks = [BottleneckBlock(filters, False, activation)
-                       for _ in range(num_blocks - 1)]
+
+        self.num_blocks = num_blocks
+        self.filters = filters
+        self.downsample = downsample
+        self.activation = activation
+
+    def build(self, input_shape):
+        self.block_1 = BottleneckBlock(self.filters, self.downsample,
+                                       self.activation)
+        self.blocks = [BottleneckBlock(self.filters, False, self.activation)
+                       for _ in range(self.num_blocks - 1)]
+
+        self.built = True
 
     def call(self, inputs):
         x = self.block_1(inputs)
@@ -345,6 +367,15 @@ class BottleneckBlocks(layers.Layer):
             x = block(x)
 
         return x
+
+    def get_config(self):
+        config = super(BottleneckBlocks, self).get_config()
+        config.update({"num_blocks": self.num_blocks,
+                       "filters": self.filters,
+                       "downsample": self.downsample,
+                       "activation": self.activation})
+
+        return config
 
 
 class RSNHead(layers.Layer):
