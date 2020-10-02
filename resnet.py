@@ -221,9 +221,16 @@ class ResidualBlocks(layers.Layer):
     def __init__(self, num_blocks=2, filters=64, downsample=False,
                  activation='relu', **kwargs):
         super(ResidualBlocks, self).__init__(**kwargs)
-        self.block_1 = ResidualBlock(filters, downsample, activation)
-        self.blocks = [ResidualBlock(filters, False, activation)
-                       for _ in range(num_blocks - 1)]
+        self.num_blocks = num_blocks
+        self.filters = filters
+        self.downsample = downsample
+        self.activation = activation
+
+    def build(self, input_shape):
+        self.block_1 = ResidualBlock(self.filters, self.downsample,
+                                     self.activation)
+        self.blocks = [ResidualBlock(self.filters, False, self.activation)
+                       for _ in range(self.num_blocks - 1)]
 
     def call(self, inputs):
         x = self.block_1(inputs)
@@ -231,7 +238,14 @@ class ResidualBlocks(layers.Layer):
             x = block(x)
 
         return x
-    
+
+    def get_config(self):
+        config = super(ResidualBlocks, self).get_config()
+        config.update({"num_blocks": self.num_blocks,
+                       "filters": self.filters,
+                       "downsample": self.downsample,
+                       "activation": self.activation})
+        return config
 
 
 class BottleneckBlock(layers.Layer):
