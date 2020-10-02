@@ -182,6 +182,8 @@ class ResidualBlock(layers.Layer):
                                                    padding='same',
                                                    activation=None)
 
+        self.built = True
+
     def call(self, inputs):
         # First conv.
         x = self.conv2d_1(inputs)
@@ -231,6 +233,8 @@ class ResidualBlocks(layers.Layer):
                                      self.activation)
         self.blocks = [ResidualBlock(self.filters, False, self.activation)
                        for _ in range(self.num_blocks - 1)]
+
+        self.built = True
 
     def call(self, inputs):
         x = self.block_1(inputs)
@@ -361,6 +365,8 @@ class RSNHead(layers.Layer):
                                              strides=self.strides,
                                              padding='same')
 
+        self.built = True
+
     def call(self, inputs):
         x = self.conv1(inputs)
         x = self.maxpool2d(x)
@@ -373,7 +379,7 @@ class RSNHead(layers.Layer):
                        "kernel_size": self.kernel_size,
                        "strides": self.strides,
                        "pool_size": self.pool_size})
-        return configZ
+        return config
 
 
 class RSNTail(layers.Layer):
@@ -384,6 +390,8 @@ class RSNTail(layers.Layer):
     def build(self, input_shape):
         self.global_avg_pool = layers.GlobalAveragePooling2D()
         self.fc = layers.Dense(self.output_size)
+
+        self.built = True
 
     def call(self, inputs):
         x = self.global_avg_pool(inputs)
