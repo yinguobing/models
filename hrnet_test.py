@@ -2,6 +2,11 @@ from tensorflow import keras
 from hrnet import HRNetBody
 
 if __name__ == "__main__":
-    model = HRNetBody(name="HRNetBody")
-    model(keras.Input((256, 256, 256)))
+    inputs = keras.Input((256, 256, 3))
+    body= HRNetBody(name="HRNetBody")
+    outputs = body(inputs)
+
+    model = keras.Model(inputs, outputs)
     model.summary()
+
+    model.save("./saved_model/hrnet_body")

@@ -4,22 +4,28 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
 
-from models.resnet import BottleneckBlock, ResidualBlock
+from resnet import BottleneckBlock, ResidualBlock
 
 
 class HRN1stStage(layers.Layer):
     def __init__(self, filters=64, activation='relu', **kwargs):
         super(HRN1stStage, self).__init__(**kwargs)
 
+        self.filters = filters
+        self.activation = activation
+
+    def build(self, input_shape):
         self.bottleneck_1 = BottleneckBlock(64)
         self.bottleneck_2 = BottleneckBlock(64)
         self.bottleneck_3 = BottleneckBlock(64)
         self.bottleneck_4 = BottleneckBlock(64)
-        self.conv3x3 = layers.Conv2D(filters=filters,
+        self.conv3x3 = layers.Conv2D(filters=self.filters,
                                      kernel_size=(3, 3),
                                      strides=(1, 1),
                                      padding='same')
         self.s1_batch_norm = layers.BatchNormalization()
+
+        self.built = True
 
     def call(self, inputs):
         x = self.bottleneck_1(inputs)
@@ -31,16 +37,32 @@ class HRN1stStage(layers.Layer):
 
         return x
 
+    def get_config(self):
+        config = super(HRN1stStage, self).get_config()
+        config.update({"filters": self.filters, "activation": self.activation})
+
+        return config
+
 
 class HRNBlock(layers.Layer):
     def __init__(self, filters=64, activation='relu', **kwargs):
         super(HRNBlock, self).__init__(**kwargs)
 
+        self.filters = filters
+        self.activation = activation
+
+    def build(self, input_shape):
         # There are 4 residual blocks in each modularized block.
-        self.residual_block_1 = ResidualBlock(filters, False, activation)
-        self.residual_block_2 = ResidualBlock(filters, False, activation)
-        self.residual_block_3 = ResidualBlock(filters, False, activation)
-        self.residual_block_4 = ResidualBlock(filters, False, activation)
+        self.residual_block_1 = ResidualBlock(self.filters, False,
+                                              self.activation)
+        self.residual_block_2 = ResidualBlock(self.filters, False,
+                                              self.activation)
+        self.residual_block_3 = ResidualBlock(self.filters, False,
+                                              self.activation)
+        self.residual_block_4 = ResidualBlock(self.filters, False,
+                                              self.activation)
+
+        self.built = True
 
     def call(self, inputs):
         x = self.residual_block_1(inputs)
@@ -50,12 +72,26 @@ class HRNBlock(layers.Layer):
 
         return x
 
+    def get_config(self):
+        config = super(HRNBlock, self).get_config()
+        config.update({"filters": self.filters, "activation": self.activation})
+
+        return config
+
 
 class HRNBlocks(layers.Layer):
     def __init__(self, repeat=1, filters=64, activation='relu', **kwargs):
         super(HRNBlocks, self).__init__(**kwargs)
-        self.blocks = [ResidualBlock(filters, False, activation)
-                       for _ in range(repeat)]
+
+        self.repeat = repeat
+        self.filters = filters
+        self.activation = activation
+
+    def build(self, input_shape):
+        self.blocks = [ResidualBlock(self.filters, False, self.activation)
+                       for _ in range(self.repeat)]
+
+        self.built = True
 
     def call(self, inputs):
         for block in self.blocks:
@@ -63,26 +99,40 @@ class HRNBlocks(layers.Layer):
 
         return inputs
 
+    def get_config(self):
+        config = super(HRNBlocks, self).get_config()
+        config.update({"repeat": self.repeat, "filters": self.filters,
+                       "activation": self.activation})
+
+        return config
+
 
 class FusionLayer(layers.Layer):
     """A fusion layer actually do two things: resize the maps, match the channels"""
 
     def __init__(self, filters, upsample=False, activation='relu', **kwargs):
         super(FusionLayer, self).__init__(**kwargs)
+
+        self.filters = filters
         self.upsample = upsample
-        self.downsample_layer = layers.Conv2D(filters=filters,
+        self.activation_fun = activation
+
+    def build(self, input_shape):
+        self.downsample_layer = layers.Conv2D(filters=self.filters,
                                               kernel_size=(3, 3),
                                               strides=(2, 2),
                                               padding='same')
-        if upsample:
+        if self.upsample:
             self.upsample_layer = layers.UpSampling2D(size=(2, 2),
                                                       interpolation='bilinear')
-            self.match_channels = layers.Conv2D(filters=filters,
+            self.match_channels = layers.Conv2D(filters=self.filters,
                                                 kernel_size=(1, 1),
                                                 strides=(1, 1),
                                                 padding='same')
         self.batch_norm = layers.BatchNormalization()
-        self.activation = layers.Activation(activation)
+        self.activation = layers.Activation(self.activation_fun)
+
+        self.built = True
 
     def call(self, inputs):
         if self.upsample:
@@ -95,6 +145,13 @@ class FusionLayer(layers.Layer):
 
         return x
 
+    def get_config(self):
+        config = super(FusionLayer, self).get_config()
+        config.update({"filters": self.filters, "upsample": self.upsample,
+                       "activation": self.activation_fun})
+
+        return config
+
 
 class Identity(layers.Layer):
     """A identity layer do NOT modify the tensors."""
@@ -102,8 +159,14 @@ class Identity(layers.Layer):
     def __init__(self, **kwargs):
         super(Identity, self).__init__(**kwargs)
 
+    def build(self, input_shape):
+        self.built = True
+
     def call(self, inputs):
         return tf.identity(inputs)
+
+    def get_config(self):
+        return super(Identity, self).get_config()
 
 
 class FusionBlock(layers.Layer):
@@ -126,26 +189,36 @@ class FusionBlock(layers.Layer):
 
     def __init__(self, filters, branches_in, branches_out, activation='relu', **kwargs):
         super(FusionBlock, self).__init__(**kwargs)
+
+        self.filters = filters
+        self.branches_in = branches_in
+        self.branches_out = branches_out
+        self.activation = activation
+
+    def build(self, input_shape):
         # Construct the fusion layers.
         self._fusion_grid = []
 
-        for row in range(branches_in):
+        for row in range(self.branches_in):
             fusion_layers = []
-            for column in range(branches_out):
+            for column in range(self.branches_out):
                 if column == row:
                     fusion_layers.append(Identity())
                 elif column > row:
                     # Down sampling.
-                    fusion_layers.append(FusionLayer(filters * pow(2, column),
-                                                     False, activation))
+                    fusion_layers.append(FusionLayer(self.filters * pow(2, column),
+                                                     False, self.activation))
                 else:
                     # Up sampling.
-                    fusion_layers.append(FusionLayer(filters * pow(2, column),
-                                                     True, activation))
+                    fusion_layers.append(FusionLayer(self.filters * pow(2, column),
+                                                     True, self.activation))
 
             self._fusion_grid.append(fusion_layers)
 
-        self._add_layers_group = [layers.Add() for _ in range(branches_out)]
+        self._add_layers_group = [layers.Add()
+                                  for _ in range(self.branches_out)]
+
+        self.built = True
 
     def call(self, inputs):
         """Fuse the last layer's outputs. The inputs should be a list of the last layers output tensors in order of branches."""
@@ -190,37 +263,51 @@ class FusionBlock(layers.Layer):
 
         return outputs
 
+    def get_config(self):
+        config = super(FusionBlock, self).get_config()
+        config.update({"filters": self.filters,
+                       "branches_in": self.branches_in,
+                       "branches_out": self.branches_out,
+                       "activation":  self.activation})
 
-class HRNetBody(keras.Model):
+        return config
+
+
+class HRNetBody(layers.Layer):
     def __init__(self, filters=64, **kwargs):
         super(HRNetBody, self).__init__(**kwargs)
 
-        # Stage 1
-        self.s1_b1_block = HRN1stStage(filters, name="s1_b1")
+        self.filters = filters
 
-        self.s1_fusion = FusionBlock(filters, branches_in=1, branches_out=2,
+    def build(self, input_shape):
+        # Stage 1
+        self.s1_b1_block = HRN1stStage(self.filters, name="s1_b1")
+
+        self.s1_fusion = FusionBlock(self.filters, branches_in=1, branches_out=2,
                                      name="fusion_1")
 
         # Stage 2
-        self.s2_b1_block = HRNBlock(filters, name="s2_b1")
-        self.s2_b2_block = HRNBlock(filters*2, name="s2_b2")
+        self.s2_b1_block = HRNBlock(self.filters, name="s2_b1")
+        self.s2_b2_block = HRNBlock(self.filters*2, name="s2_b2")
 
-        self.s2_fusion = FusionBlock(filters, branches_in=2, branches_out=3,
+        self.s2_fusion = FusionBlock(self.filters, branches_in=2, branches_out=3,
                                      name="fusion_2")
 
         # Stage 3
-        self.s3_b1_blocks = HRNBlocks(4, filters, name="s3_b1")
-        self.s3_b2_blocks = HRNBlocks(4, filters*2, name="s3_b2")
-        self.s3_b3_blocks = HRNBlocks(4, filters*4, name="s3_b3")
+        self.s3_b1_blocks = HRNBlocks(4, self.filters, name="s3_b1")
+        self.s3_b2_blocks = HRNBlocks(4, self.filters*2, name="s3_b2")
+        self.s3_b3_blocks = HRNBlocks(4, self.filters*4, name="s3_b3")
 
-        self.s3_fusion = FusionBlock(filters, branches_in=3, branches_out=4,
+        self.s3_fusion = FusionBlock(self.filters, branches_in=3, branches_out=4,
                                      name="fusion_3")
 
         # Stage 4
-        self.s4_b1_blocks = HRNBlocks(3, filters, name="s4_b1")
-        self.s4_b2_blocks = HRNBlocks(3, filters*2, name="s4_b2")
-        self.s4_b3_blocks = HRNBlocks(3, filters*4, name="s4_b3")
-        self.s4_b4_blocks = HRNBlocks(3, filters*8, name="s4_b4")
+        self.s4_b1_blocks = HRNBlocks(3, self.filters, name="s4_b1")
+        self.s4_b2_blocks = HRNBlocks(3, self.filters*2, name="s4_b2")
+        self.s4_b3_blocks = HRNBlocks(3, self.filters*4, name="s4_b3")
+        self.s4_b4_blocks = HRNBlocks(3, self.filters*8, name="s4_b4")
+
+        self.built = True
 
     def call(self, inputs):
         # Stage 1
@@ -245,3 +332,9 @@ class HRNetBody(keras.Model):
         x_4 = self.s4_b4_blocks(x[3])
 
         return [x_1, x_2, x_3, x_4]
+
+    def get_config(self):
+        config = super(HRNetBody, self).get_config()
+        config.update({"filters": self.filters})
+
+        return config
