@@ -166,7 +166,6 @@ class ResidualBlock(layers.Layer):
         # Batch normalization layer.
         self.batch_norm_1 = layers.BatchNormalization()
         self.batch_norm_2 = layers.BatchNormalization()
-        self.batch_norm_3 = layers.BatchNormalization()
 
         # Activation layer.
         self.Activation = layers.Activation
@@ -181,6 +180,7 @@ class ResidualBlock(layers.Layer):
                                                    strides=strides,
                                                    padding='same',
                                                    activation=None)
+            self.batch_norm_3 = layers.BatchNormalization()
 
         self.built = True
 
