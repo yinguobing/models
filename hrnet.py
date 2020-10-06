@@ -118,10 +118,6 @@ class FusionLayer(layers.Layer):
         self.activation_fun = activation
 
     def build(self, input_shape):
-        self.downsample_layer = layers.Conv2D(filters=self.filters,
-                                              kernel_size=(3, 3),
-                                              strides=(2, 2),
-                                              padding='same')
         if self.upsample:
             self.upsample_layer = layers.UpSampling2D(size=(2, 2),
                                                       interpolation='bilinear')
@@ -129,6 +125,12 @@ class FusionLayer(layers.Layer):
                                                 kernel_size=(1, 1),
                                                 strides=(1, 1),
                                                 padding='same')
+        else:
+            self.downsample_layer = layers.Conv2D(filters=self.filters,
+                                                  kernel_size=(3, 3),
+                                                  strides=(2, 2),
+                                                  padding='same')
+
         self.batch_norm = layers.BatchNormalization()
         self.activation = layers.Activation(self.activation_fun)
 
@@ -215,8 +217,9 @@ class FusionBlock(layers.Layer):
 
             self._fusion_grid.append(fusion_layers)
 
-        self._add_layers_group = [layers.Add()
-                                  for _ in range(self.branches_out)]
+        if len(self._fusion_grid) > 1:
+            self._add_layers_group = [layers.Add()
+                                      for _ in range(self.branches_out)]
 
         self.built = True
 
