@@ -5,6 +5,8 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import Model, layers
 
+import tensorflow_model_optimization as tfmot
+
 
 def residual_block(inputs, filters=64, kernel_size=(3, 3), strides=(1, 1),
                    padding='same', activation='relu'):
@@ -135,7 +137,7 @@ def make_resnet18(input_shape, output_size=1000):
     return model
 
 
-class ResidualBlock(layers.Layer):
+class ResidualBlock(layers.Layer, tfmot.sparsity.keras.PrunableLayer):
     def __init__(self, filters=64, downsample=False, activation='relu', **kwargs):
         super(ResidualBlock, self).__init__(**kwargs)
 
@@ -215,9 +217,18 @@ class ResidualBlock(layers.Layer):
                        "activation": self.activation_fun})
         return config
 
+    def get_prunable_weights(self):
+        prunable_weights = [
+            getattr(self.conv2d_1, 'kernel'),
+            getattr(self.conv2d_2, 'kernel')]
+        if self.downsample:
+            prunable_weights.append(getattr(self.downsample_inputs, 'kernel'))
+
+        return prunable_weights
+
 
 class ResidualBlocks(layers.Layer):
-    """A bunch of Residual Blocks. Down sampling is only performed by the first 
+    """A bunch of Residual Blocks. Down sampling is only performed by the first
     block if required."""
 
     def __init__(self, num_blocks=2, filters=64, downsample=False,
@@ -252,7 +263,7 @@ class ResidualBlocks(layers.Layer):
         return config
 
 
-class BottleneckBlock(layers.Layer):
+class BottleneckBlock(layers.Layer, tfmot.sparsity.keras.PrunableLayer):
 
     def __init__(self, filters=64, downsample=False, activation='relu', **kwargs):
         super(BottleneckBlock, self).__init__(**kwargs)
@@ -338,6 +349,16 @@ class BottleneckBlock(layers.Layer):
                        "activation": self.activation_fun})
 
         return config
+
+    def get_prunable_weights(self):
+        prunable_weights = [
+            getattr(self.conv2d_1, 'kernel'),
+            getattr(self.conv2d_2, 'kernel'),
+            getattr(self.conv2d_3, 'kernel'),
+            getattr(self.match_inputs, 'kernel')
+        ]
+
+        return prunable_weights
 
 
 class BottleneckBlocks(layers.Layer):

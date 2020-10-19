@@ -1,13 +1,16 @@
 """A human friendly implimentation of High-Resolution Net."""
 
+from itertools import chain
+
 import tensorflow as tf
+import tensorflow_model_optimization as tfmot
 from tensorflow import keras
 from tensorflow.keras import layers
 
 from models.resnet import BottleneckBlock, ResidualBlock
 
 
-class HRN1stStage(layers.Layer):
+class HRN1stStage(layers.Layer, tfmot.sparsity.keras.PrunableLayer):
     def __init__(self, filters=64, activation='relu', **kwargs):
         super(HRN1stStage, self).__init__(**kwargs)
 
@@ -43,8 +46,19 @@ class HRN1stStage(layers.Layer):
 
         return config
 
+    def get_prunable_weights(self):
+        prunable_weights = list(chain(*[
+            self.bottleneck_1.get_prunable_weights(),
+            self.bottleneck_2.get_prunable_weights(),
+            self.bottleneck_3.get_prunable_weights(),
+            self.bottleneck_4.get_prunable_weights(),
+            [getattr(self.conv3x3, 'kernel')]
+        ]))
 
-class HRNBlock(layers.Layer):
+        return prunable_weights
+
+
+class HRNBlock(layers.Layer, tfmot.sparsity.keras.PrunableLayer):
     def __init__(self, filters=64, activation='relu', **kwargs):
         super(HRNBlock, self).__init__(**kwargs)
 
@@ -78,8 +92,17 @@ class HRNBlock(layers.Layer):
 
         return config
 
+    def get_prunable_weights(self):
+        prunable_weights = list(chain(*[
+            self.residual_block_1.get_prunable_weights(),
+            self.residual_block_2.get_prunable_weights(),
+            self.residual_block_3.get_prunable_weights(),
+            self.residual_block_4.get_prunable_weights()]))
 
-class HRNBlocks(layers.Layer):
+        return prunable_weights
+
+
+class HRNBlocks(layers.Layer, tfmot.sparsity.keras.PrunableLayer):
     def __init__(self, repeat=1, filters=64, activation='relu', **kwargs):
         super(HRNBlocks, self).__init__(**kwargs)
 
@@ -106,8 +129,14 @@ class HRNBlocks(layers.Layer):
 
         return config
 
+    def get_prunable_weights(self):
+        prunable_weights = list(chain(*[block.get_prunable_weights()
+                                        for block in self.blocks]))
 
-class FusionLayer(layers.Layer):
+        return prunable_weights
+
+
+class FusionLayer(layers.Layer, tfmot.sparsity.keras.PrunableLayer):
     """A fusion layer actually do two things: resize the maps, match the channels"""
 
     def __init__(self, filters, upsample=False, activation='relu', **kwargs):
@@ -154,8 +183,16 @@ class FusionLayer(layers.Layer):
 
         return config
 
+    def get_prunable_weights(self):
+        if self.upsample:
+            prunable_weights = [getattr(self.match_channels, 'kernel')]
+        else:
+            prunable_weights = [getattr(self.downsample_layer, 'kernel')]
 
-class Identity(layers.Layer):
+        return prunable_weights
+
+
+class Identity(layers.Layer, tfmot.sparsity.keras.PrunableLayer):
     """A identity layer do NOT modify the tensors."""
 
     def __init__(self, **kwargs):
@@ -170,8 +207,11 @@ class Identity(layers.Layer):
     def get_config(self):
         return super(Identity, self).get_config()
 
+    def get_prunable_weights(self):
+        return []
 
-class FusionBlock(layers.Layer):
+
+class FusionBlock(layers.Layer, tfmot.sparsity.keras.PrunableLayer):
     """A fusion block will fuse multi-resolution inputs.
 
     A typical fusion block looks like a square box with cells. For example at
@@ -275,8 +315,17 @@ class FusionBlock(layers.Layer):
 
         return config
 
+    def get_prunable_weights(self):
+        prunable_weights = []
+        for _layers in self._fusion_grid:
+            for _layer in _layers:
+                prunable_weights.extend(
+                    list(chain(_layer.get_prunable_weights())))
 
-class HRNetBody(layers.Layer):
+        return prunable_weights
+
+
+class HRNetBody(layers.Layer, tfmot.sparsity.keras.PrunableLayer):
     def __init__(self, filters=64, **kwargs):
         super(HRNetBody, self).__init__(**kwargs)
 
@@ -341,3 +390,22 @@ class HRNetBody(layers.Layer):
         config.update({"filters": self.filters})
 
         return config
+
+    def get_prunable_weights(self):
+        prunable_weights = list(chain(*[
+            self.s1_b1_block.get_prunable_weights(),
+            self.s1_fusion.get_prunable_weights(),
+            self.s2_b1_block.get_prunable_weights(),
+            self.s2_b2_block.get_prunable_weights(),
+            self.s2_fusion.get_prunable_weights(),
+            self.s3_b1_blocks.get_prunable_weights(),
+            self.s3_b2_blocks.get_prunable_weights(),
+            self.s3_b3_blocks.get_prunable_weights(),
+            self.s3_fusion.get_prunable_weights(),
+            self.s4_b1_blocks.get_prunable_weights(),
+            self.s4_b2_blocks.get_prunable_weights(),
+            self.s4_b3_blocks.get_prunable_weights(),
+            self.s4_b4_blocks.get_prunable_weights()
+        ]))
+
+        return prunable_weights
