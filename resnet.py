@@ -85,14 +85,12 @@ def bottleneck_block(inputs, filters=64, expantion=1, kernel_size=(3, 3),
 
     # Time for the famous shortcut connection. Down sample the input if the
     # feature maps are down sampled.
-    if strides != (1, 1):
-        inputs = layers.Conv2D(filters=filters * 4,
-                               kernel_size=(1, 1),
-                               strides=strides,
-                               padding=padding,
-                               activation=None)(inputs)
-        inputs = layers.BatchNormalization()(inputs)
-
+    inputs = layers.Conv2D(filters=filters * 4,
+                           kernel_size=(1, 1),
+                           strides=strides,
+                           padding=padding,
+                           activation=None)(inputs)
+    inputs = layers.BatchNormalization()(inputs)
     x = layers.Add()([x, inputs])
 
     # Finally, output of the block.
