@@ -6,13 +6,14 @@ from tensorflow import keras
 from tensorflow.keras import Model, layers
 
 
-def residual_block(filters=64, kernel_size=(3, 3), strides=(1, 1),
+def residual_block(filters=64, downsample=False, kernel_size=(3, 3),
                    padding='same', activation='relu'):
     """Building block for shallow ResNet."""
 
     # Note down sampling is performed by the first conv layer. Batch
     # normalization (BN) adopted right after each convolution and before
     # activation.
+    strides = (2, 2) if downsample else (1, 1)
     block_layers = [layers.Conv2D(filters=filters,
                                   kernel_size=kernel_size,
                                   strides=strides,
@@ -30,14 +31,13 @@ def residual_block(filters=64, kernel_size=(3, 3), strides=(1, 1),
                          layers.BatchNormalization()])
 
     # Down sample the input if the feature maps are down sampled.
-    matching_layers = []
-    if strides != (1, 1):
-        matching_layers.extend([layers.Conv2D(filters=filters,
-                                              kernel_size=(1, 1),
-                                              strides=strides,
-                                              padding=padding,
-                                              activation=None),
-                                layers.BatchNormalization()])
+    if downsample:
+        matching_layers = [layers.Conv2D(filters=filters,
+                                         kernel_size=(1, 1),
+                                         strides=strides,
+                                         padding=padding,
+                                         activation=None),
+                           layers.BatchNormalization()]
 
     def forward(inputs):
         x = inputs
@@ -45,7 +45,7 @@ def residual_block(filters=64, kernel_size=(3, 3), strides=(1, 1),
             x = layer(x)
 
         # Match the feature map size and channels.
-        if matching_layers:
+        if downsample:
             for layer in matching_layers:
                 inputs = layer(inputs)
 
@@ -61,11 +61,10 @@ def residual_block(filters=64, kernel_size=(3, 3), strides=(1, 1),
 
 
 def residual_blocks(num_blocks=2, filters=64, downsample=False, activation='relu'):
-    strides = (2, 2) if downsample else (1, 1)
     block_layers = [
-        residual_block(filters, strides=strides, activation=activation)]
+        residual_block(filters, downsample=downsample, activation=activation)]
     block_layers.extend(
-        [residual_block(filters,  strides=(1, 1),  activation=activation)
+        [residual_block(filters, downsample=False, activation=activation)
          for _ in range(num_blocks - 1)])
 
     def forward(inputs):
@@ -77,7 +76,7 @@ def residual_blocks(num_blocks=2, filters=64, downsample=False, activation='relu
     return forward
 
 
-def bottleneck_block(filters=64, expantion=1, kernel_size=(3, 3), strides=(2, 2), padding='same', activation='relu'):
+def bottleneck_block(filters=64, expantion=1, kernel_size=(3, 3), downsample=False, padding='same', activation='relu'):
     """Building block for deeper ResNet."""
 
     # Bottleneck block could be expanded. Get the expanded size.
@@ -86,6 +85,7 @@ def bottleneck_block(filters=64, expantion=1, kernel_size=(3, 3), strides=(2, 2)
     # Note down sampling is performed by the first conv layer. Batch
     # normalization (BN) adopted right after each convolution and before
     # activation.
+    strides = (2, 2) if downsample else (1, 1)
     block_layers = [layers.Conv2D(filters=filters,
                                   kernel_size=(1, 1),
                                   strides=strides,
@@ -141,11 +141,11 @@ def bottleneck_block(filters=64, expantion=1, kernel_size=(3, 3), strides=(2, 2)
 
 
 def bottleneck_blocks(num_blocks=3, filters=64, downsample=False, activation='relu'):
-    strides = (2, 2) if downsample else (1, 1)
     block_layers = [
-        bottleneck_block(filters, strides=strides, activation=activation)]
+        bottleneck_block(filters, downsample=downsample, activation=activation)]
     block_layers.extend([
-        bottleneck_block(filters, strides=(1, 1), activation=activation)])
+        bottleneck_block(filters, downsample=False, activation=activation)
+        for _ in range(num_blocks - 1)])
 
     def forward(inputs):
         for layer in block_layers:
