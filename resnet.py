@@ -5,137 +5,221 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import Model, layers
 
-import tensorflow_model_optimization as tfmot
 
-
-def residual_block(inputs, filters=64, kernel_size=(3, 3), strides=(1, 1),
+def residual_block(filters=64, kernel_size=(3, 3), strides=(1, 1),
                    padding='same', activation='relu'):
     """Building block for shallow ResNet."""
+
     # Note down sampling is performed by the first conv layer. Batch
     # normalization (BN) adopted right after each convolution and before
     # activation.
-    x = layers.Conv2D(filters=filters,
-                      kernel_size=kernel_size,
-                      strides=strides,
-                      padding=padding,
-                      activation=None)(inputs)
-    x = layers.BatchNormalization()(x)
-    x = layers.Activation(activation)(x)
+    block_layers = [layers.Conv2D(filters=filters,
+                                  kernel_size=kernel_size,
+                                  strides=strides,
+                                  padding=padding,
+                                  activation=None),
+                    layers.BatchNormalization(),
+                    layers.Activation(activation)]
 
     # Then the second conv layer without down sampling.
-    x = layers.Conv2D(filters=filters,
-                      kernel_size=kernel_size,
-                      strides=(1, 1),
-                      padding=padding,
-                      activation=None)(x)
-    x = layers.BatchNormalization()(x)
+    block_layers.extend([layers.Conv2D(filters=filters,
+                                       kernel_size=kernel_size,
+                                       strides=(1, 1),
+                                       padding=padding,
+                                       activation=None),
+                         layers.BatchNormalization()])
 
-    # Time for the famous shortcut connection. Down sample the input if the
-    # feature maps are down sampled.
+    # Down sample the input if the feature maps are down sampled.
+    matching_layers = []
     if strides != (1, 1):
-        inputs = layers.Conv2D(filters=filters,
-                               kernel_size=(1, 1),
-                               strides=strides,
-                               padding=padding,
-                               activation=None)(inputs)
-        inputs = layers.BatchNormalization()(inputs)
+        matching_layers.extend([layers.Conv2D(filters=filters,
+                                              kernel_size=(1, 1),
+                                              strides=strides,
+                                              padding=padding,
+                                              activation=None),
+                                layers.BatchNormalization()])
 
-    x = layers.Add()([x, inputs])
+    def forward(inputs):
+        x = inputs
+        for layer in block_layers:
+            x = layer(x)
 
-    # Finally, output of the block.
-    x = layers.Activation(activation)(x)
+        # Match the feature map size and channels.
+        if matching_layers:
+            for layer in matching_layers:
+                inputs = layer(inputs)
 
-    return x
+        # Time for the famous shortcut connection.
+        x = layers.Add()([x, inputs])
+
+        # Finally, output of the block.
+        x = layers.Activation(activation)(x)
+
+        return x
+
+    return forward
 
 
-def bottleneck_block(inputs, filters=64, expantion=1, kernel_size=(3, 3),
-                     strides=(2, 2), padding='same', activation='relu'):
+def residual_blocks(num_blocks=2, filters=64, downsample=False, activation='relu'):
+    strides = (2, 2) if downsample else (1, 1)
+    block_layers = [
+        residual_block(filters, strides=strides, activation=activation)]
+    block_layers.extend(
+        [residual_block(filters,  strides=(1, 1),  activation=activation)
+         for _ in range(num_blocks - 1)])
+
+    def forward(inputs):
+        for layer in block_layers:
+            inputs = layer(inputs)
+
+        return inputs
+
+    return forward
+
+
+def bottleneck_block(filters=64, expantion=1, kernel_size=(3, 3), strides=(2, 2), padding='same', activation='relu'):
     """Building block for deeper ResNet."""
+
     # Bottleneck block could be expanded. Get the expanded size.
     filters *= expantion
 
     # Note down sampling is performed by the first conv layer. Batch
     # normalization (BN) adopted right after each convolution and before
     # activation.
-    x = layers.Conv2D(filters=filters,
-                      kernel_size=(1, 1),
-                      strides=strides,
-                      padding=padding,
-                      activation=None)(inputs)
-    x = layers.BatchNormalization()(x)
-    x = layers.Activation(activation)(x)
+    block_layers = [layers.Conv2D(filters=filters,
+                                  kernel_size=(1, 1),
+                                  strides=strides,
+                                  padding=padding,
+                                  activation=None),
+                    layers.BatchNormalization(),
+                    layers.Activation(activation)]
 
     # Then the second conv layer without down sampling.
-    x = layers.Conv2D(filters=filters,
-                      kernel_size=kernel_size,
-                      strides=(1, 1),
-                      padding=padding,
-                      activation=None)(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.Activation(activation)(x)
+    block_layers.extend([layers.Conv2D(filters=filters,
+                                       kernel_size=kernel_size,
+                                       strides=(1, 1),
+                                       padding=padding,
+                                       activation=None),
+                         layers.BatchNormalization(),
+                         layers.Activation(activation)])
 
     # Then the third conv layer, also without down sampling. This layer also
     # has 4 times more filters.
-    x = layers.Conv2D(filters=filters * 4,
-                      kernel_size=(1, 1),
-                      strides=(1, 1),
-                      padding=padding,
-                      activation=None)(x)
-    x = layers.BatchNormalization()(x)
+    block_layers.extend([layers.Conv2D(filters=filters * 4,
+                                       kernel_size=(1, 1),
+                                       strides=(1, 1),
+                                       padding=padding,
+                                       activation=None),
+                         layers.BatchNormalization()])
 
     # Time for the famous shortcut connection. Down sample the input if the
     # feature maps are down sampled.
-    inputs = layers.Conv2D(filters=filters * 4,
-                           kernel_size=(1, 1),
-                           strides=strides,
-                           padding=padding,
-                           activation=None)(inputs)
-    inputs = layers.BatchNormalization()(inputs)
-    x = layers.Add()([x, inputs])
+    matching_layers = [layers.Conv2D(filters=filters * 4,
+                                     kernel_size=(1, 1),
+                                     strides=strides,
+                                     padding=padding,
+                                     activation=None),
+                       layers.BatchNormalization()]
 
-    # Finally, output of the block.
-    x = layers.Activation(activation)(x)
+    def forward(inputs):
+        x = inputs
+        for layer in block_layers:
+            x = layer(x)
 
-    return x
+        # Match the feature map size and channels.
+        for layer in matching_layers:
+            inputs = layer(inputs)
+
+        x = layers.Add()([x, inputs])
+
+        # Finally, output of the block.
+        x = layers.Activation(activation)(x)
+
+        return x
+
+    return forward
 
 
-def make_resnet18(input_shape, output_size=1000):
-    """Construct a ResNet18 model"""
+def bottleneck_blocks(num_blocks=3, filters=64, downsample=False, activation='relu'):
+    strides = (2, 2) if downsample else (1, 1)
+    block_layers = [
+        bottleneck_block(filters, strides=strides, activation=activation)]
+    block_layers.extend([
+        bottleneck_block(filters, strides=(1, 1), activation=activation)])
+
+    def forward(inputs):
+        for layer in block_layers:
+            inputs = layer(inputs)
+
+        return inputs
+
+    return forward
+
+
+def rsn_stem(filters=64, kernel_size=(7, 7), strides=(2, 2), pool_size=(3, 3)):
+    block_layers = [layers.Conv2D(filters=filters,
+                                  kernel_size=kernel_size,
+                                  strides=strides,
+                                  padding='same'),
+                    layers.MaxPooling2D(pool_size=pool_size,
+                                        strides=strides,
+                                        padding='same')]
+
+    def forward(inputs):
+        for layer in block_layers:
+            inputs = layer(inputs)
+
+        return inputs
+
+    return forward
+
+
+def rsn_head(output_size):
+    block_layers = [layers.GlobalAveragePooling2D(), layers.Dense(output_size)]
+
+    def forward(inputs):
+        for layer in block_layers:
+            inputs = layer(inputs)
+
+        return inputs
+
+    return forward
+
+
+def make_resnet(block_size_list, bottleneck=False, input_shape=(256, 256, 3), output_size=1000, name='ResNet'):
+    # Make sure the network setup is valid.
+    assert len(block_size_list) == 4, \
+        "Blocks size should be a list of 4 int numbers."
+
+    block_type = bottleneck_blocks if bottleneck else residual_blocks
+    filters_list = [64, 128, 256, 512]
+
+    # Construct a ResNet model
     inputs = keras.Input(shape=input_shape, name="input_image_tensor")
 
-    # Layer: conv1
-    x = layers.Conv2D(filters=64, kernel_size=(7, 7), strides=(2, 2),
-                      padding='same')(inputs)
-    x = layers.MaxPooling2D(pool_size=(3, 3), strides=(2, 2),
-                            padding='same')(x)
+    # Conv1
+    x = rsn_stem(filters=64, kernel_size=(7, 7), strides=(2, 2))(inputs)
 
-    # Layer: conv2
-    x = residual_block(x, filters=64, kernel_size=(3, 3), strides=(1, 1))
-    x = residual_block(x, filters=64, kernel_size=(3, 3), strides=(1, 1))
+    # Conv2 -> Conv5
+    body_layers = []
+    for stage, num_blocks, filters in zip(range(4), block_size_list, filters_list):
+        downsample = True if stage > 0 else False
+        body_layers.append(block_type(num_blocks=num_blocks, filters=filters,
+                                      downsample=downsample,
+                                      activation='relu'))
+    for layer in body_layers:
+        x = layer(x)
 
-    # Layer: conv3
-    x = residual_block(x, filters=128, kernel_size=(3, 3), strides=(2, 2))
-    x = residual_block(x, filters=128, kernel_size=(3, 3), strides=(1, 1))
-
-    # Layer: conv4
-    x = residual_block(x, filters=256, kernel_size=(3, 3), strides=(2, 2))
-    x = residual_block(x, filters=256, kernel_size=(3, 3), strides=(1, 1))
-
-    # Layer: conv5
-    x = residual_block(x, filters=512, kernel_size=(3, 3), strides=(2, 2))
-    x = residual_block(x, filters=512, kernel_size=(3, 3), strides=(1, 1))
-
-    # Last layer.
-    x = layers.GlobalAveragePooling2D()(x)
-    outputs = layers.Dense(output_size)(x)
+    # Output head.
+    outputs = rsn_head(output_size)(x)
 
     # Assemble the model.
-    model = Model(inputs, outputs, name='resnet18')
+    model = Model(inputs, outputs, name=name)
 
     return model
 
 
-class ResidualBlock(layers.Layer, tfmot.sparsity.keras.PrunableLayer):
+class ResidualBlock(layers.Layer):
     def __init__(self, filters=64, downsample=False, activation='relu', **kwargs):
         super(ResidualBlock, self).__init__(**kwargs)
 
@@ -215,15 +299,6 @@ class ResidualBlock(layers.Layer, tfmot.sparsity.keras.PrunableLayer):
                        "activation": self.activation_fun})
         return config
 
-    def get_prunable_weights(self):
-        prunable_weights = [
-            getattr(self.conv2d_1, 'kernel'),
-            getattr(self.conv2d_2, 'kernel')]
-        if self.downsample:
-            prunable_weights.append(getattr(self.downsample_inputs, 'kernel'))
-
-        return prunable_weights
-
 
 class ResidualBlocks(layers.Layer):
     """A bunch of Residual Blocks. Down sampling is only performed by the first
@@ -261,7 +336,7 @@ class ResidualBlocks(layers.Layer):
         return config
 
 
-class BottleneckBlock(layers.Layer, tfmot.sparsity.keras.PrunableLayer):
+class BottleneckBlock(layers.Layer):
 
     def __init__(self, filters=64, downsample=False, activation='relu', **kwargs):
         super(BottleneckBlock, self).__init__(**kwargs)
@@ -348,19 +423,9 @@ class BottleneckBlock(layers.Layer, tfmot.sparsity.keras.PrunableLayer):
 
         return config
 
-    def get_prunable_weights(self):
-        prunable_weights = [
-            getattr(self.conv2d_1, 'kernel'),
-            getattr(self.conv2d_2, 'kernel'),
-            getattr(self.conv2d_3, 'kernel'),
-            getattr(self.match_inputs, 'kernel')
-        ]
-
-        return prunable_weights
-
 
 class BottleneckBlocks(layers.Layer):
-    """A bunch of Bottleneck Blocks. Down sampling is only performed by the 
+    """A bunch of Bottleneck Blocks. Down sampling is only performed by the
     first block if required."""
 
     def __init__(self, num_blocks=3, filters=64, downsample=False,
@@ -494,7 +559,7 @@ class ResNet(Model):
         return x
 
     def prepare_summary(self, input_shape):
-        """Prepare the subclassed model for summary.Check out TensorFlow issue 
+        """Prepare the subclassed model for summary.Check out TensorFlow issue
         29132 for the original code.
 
         Args:
