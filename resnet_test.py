@@ -1,10 +1,105 @@
+import unittest
+
 import tensorflow as tf
-from resnet import make_resnet, ResNet
+
+from resnet import (ResNet, bottleneck_block, bottleneck_blocks, make_resnet,
+                    residual_block, residual_blocks, rsn_stem, rsn_head)
 
 devices = tf.config.get_visible_devices("CPU")
 tf.config.set_visible_devices(devices)
 
-if __name__ == "__main__":
+
+class TestTensorShapes(unittest.TestCase):
+
+    def setUp(self):
+        self.height = 256
+        self.width = 256
+        self.filters = 32
+        self.inputs = tf.keras.Input((self.height, self.width, self.filters))
+
+    def test_residual_block(self):
+        outputs = residual_block(filters=self.filters,
+                                 downsample=False,
+                                 kernel_size=(3, 3),
+                                 padding='same',
+                                 activation='relu')(self.inputs)
+        self.assertListEqual(outputs.shape.as_list(),
+                             [None, self.height, self.width, self.filters])
+
+    def test_residual_block_downsample(self):
+        outputs = residual_block(filters=self.filters,
+                                 kernel_size=(3, 3),
+                                 downsample=True,
+                                 padding='same',
+                                 activation='relu')(self.inputs)
+        self.assertListEqual(outputs.shape.as_list(),
+                             [None, self.height/2, self.width/2, self.filters])
+
+    def test_residual_blocks(self):
+        outputs = residual_blocks(num_blocks=2,
+                                  filters=self.filters,
+                                  downsample=False,
+                                  activation='relu')(self.inputs)
+        self.assertListEqual(outputs.shape.as_list(),
+                             [None, self.height, self.width, self.filters])
+
+    def test_residual_blocks_downsample(self):
+        outputs = residual_blocks(num_blocks=2,
+                                  filters=self.filters,
+                                  downsample=True,
+                                  activation='relu')(self.inputs)
+        self.assertListEqual(outputs.shape.as_list(),
+                             [None, self.height/2, self.width/2, self.filters])
+
+    def test_bottleneck_block(self):
+        outputs = bottleneck_block(filters=self.filters,
+                                   kernel_size=(3, 3),
+                                   downsample=False,
+                                   padding='same',
+                                   activation='relu')(self.inputs)
+        self.assertListEqual(outputs.shape.as_list(),
+                             [None, self.height, self.width, self.filters*4])
+
+    def test_bottleneck_blocks(self):
+        outputs = bottleneck_blocks(num_blocks=3,
+                                    filters=self.filters,
+                                    downsample=False,
+                                    activation='relu')(self.inputs)
+        self.assertListEqual(outputs.shape.as_list(),
+                             [None, self.height, self.width, self.filters*4])
+
+    def test_bottleneck_block_downsample(self):
+        outputs = bottleneck_block(filters=self.filters,
+                                   kernel_size=(3, 3),
+                                   downsample=True,
+                                   padding='same',
+                                   activation='relu')(self.inputs)
+        self.assertListEqual(outputs.shape.as_list(),
+                             [None, self.height/2, self.width/2, self.filters*4])
+
+    def test_bottleneck_blocks_downsample(self):
+        outputs = bottleneck_blocks(num_blocks=3,
+                                    filters=self.filters,
+                                    downsample=True,
+                                    activation='relu')(self.inputs)
+        self.assertListEqual(outputs.shape.as_list(),
+                             [None, self.height/2, self.width/2, self.filters*4])
+
+    def test_rsn_stem(self):
+        outputs = rsn_stem(filters=self.filters,
+                           kernel_size=(7, 7),
+                           strides=(2, 2),
+                           pool_size=(3, 3))(self.inputs)
+        self.assertListEqual(outputs.shape.as_list(),
+                             [None, self.height/4, self.width/4, self.filters])
+
+    def test_rsn_head(self):
+        outputs = rsn_head(1024)(self.inputs)
+        self.assertListEqual(outputs.shape.as_list(), [None, 1024])
+
+
+if __name__ == '__main__':
+    unittest.main()
 
     # RESNET 18
     res18_layer_config = [2, 2, 2, 2]
