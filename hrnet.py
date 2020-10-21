@@ -7,22 +7,227 @@ import tensorflow_model_optimization as tfmot
 from tensorflow import keras
 from tensorflow.keras import layers
 
-from models.resnet import (BottleneckBlock, ResidualBlock, bottleneck_block,
-                           residual_block)
+from resnet import (BottleneckBlock, ResidualBlock, bottleneck_block,
+                    residual_block)
 
 
-def hrn_1st_stage(inputs, filters=64, activation='relu'):
-    x = bottleneck_block(inputs, strides=(1, 1), filters=filters)
-    x = bottleneck_block(x, strides=(1, 1), filters=filters)
-    x = bottleneck_block(x, strides=(1, 1), filters=filters)
-    x = bottleneck_block(x, strides=(1, 1), filters=filters)
-    x = layers.Conv2D(filters=filters,
-                      kernel_size=(3, 3),
-                      strides=(1, 1),
-                      padding='same')(x)
-    x = layers.BatchNormalization()(x)
+def hrn_1st_stage(filters=64, activation='relu'):
+    block_layers = [bottleneck_block(filters=filters),
+                    bottleneck_block(filters=filters),
+                    bottleneck_block(filters=filters),
+                    bottleneck_block(filters=filters),
+                    layers.Conv2D(filters=filters,
+                                  kernel_size=(3, 3),
+                                  strides=(1, 1),
+                                  padding='same'),
+                    layers.BatchNormalization()]
 
-    return x
+    def forward(inputs):
+        for layer in block_layers:
+            inputs = layer(inputs)
+
+        return inputs
+
+    return forward
+
+
+def hrn_block(filters=64, activation='relu'):
+    block_layers = [residual_block(filters, activation=activation),
+                    residual_block(filters, activation=activation),
+                    residual_block(filters, activation=activation),
+                    residual_block(filters, activation=activation)]
+
+    def forward(inputs):
+        for layer in block_layers:
+            inputs = layer(inputs)
+
+        return inputs
+
+    return forward
+
+
+def hrn_blocks(inputs, repeat=1, filters=64, activation='relu'):
+    block_layers = [hrn_block(filters, activation=activation)
+                    for _ in range(repeat)]
+
+    def forward(inputs):
+        for layer in block_layers:
+            inputs = layer(inputs)
+
+        return inputs
+
+    return forward
+
+
+def fusion_layer(filters, upsample=False, activation='relu'):
+    block_layers = []
+    if upsample:
+        block_layers.extend([layers.Conv2D(filters=filters,
+                                           kernel_size=(1, 1),
+                                           strides=(1, 1),
+                                           padding='same'),
+                             layers.UpSampling2D(size=(2, 2),
+                                                 interpolation='bilinear')])
+    else:
+        block_layers.append(layers.Conv2D(filters=filters,
+                                          kernel_size=(3, 3),
+                                          strides=(2, 2),
+                                          padding='same'))
+
+    block_layers.extend([layers.BatchNormalization(),
+                         layers.Activation(activation)])
+
+    def forward(inputs):
+        for layer in block_layers:
+            inputs = layer(inputs)
+
+        return inputs
+
+    return forward
+
+
+def fusion_block(filters, branches_in, branches_out, activation='relu'):
+    """A fusion block will fuse multi-resolution inputs.
+
+    A typical fusion block looks like a square box with cells. For example at
+    stage 3, the fusion block consists 12 cells. Each cell represents a fusion
+    layer. Every cell whose row < column is a down sampling cell, whose row ==
+    column is a identity cell, and the rest are up sampling cells.
+
+             B1         B2         B3         B4
+        |----------|----------|----------|----------|
+    B1  | identity |    ->    |    ->    |    ->    |
+        |----------|----------|----------|----------|
+    B2  |    <-    | identity |    ->    |    ->    |
+        |----------|----------|----------|----------|
+    B3  |    <-    |    <-    | identity |    ->    |
+        |----------|----------|----------|----------|
+    """
+    # Construct the fusion layers.
+    _fusion_grid = []
+
+    rows = branches_in
+    columns = branches_out
+
+    for row in range(rows):
+        _fusion_layers = []
+        for column in range(columns):
+            if column == row:
+                _fusion_layers.append(tf.identity)
+            elif column > row:
+                # Down sampling.
+                _fusion_layers.append(fusion_layer(filters * pow(2, column),
+                                                   False, activation))
+            else:
+                # Up sampling.
+                _fusion_layers.append(fusion_layer(filters * pow(2, column),
+                                                   True, activation))
+
+        _fusion_grid.append(_fusion_layers)
+
+    if len(_fusion_grid) > 1:
+        _add_layers_group = [layers.Add() for _ in range(branches_out)]
+
+    def forward(inputs):
+        rows = len(_fusion_grid)
+        columns = len(_fusion_grid[0])
+
+        # Every cell in the fusion grid has an output value.
+        fusion_values = [[None for _ in range(columns)] for _ in range(rows)]
+
+        for row in range(rows):
+            # The down sampling operation excutes from left to right.
+            for column in range(columns):
+                # The input will be different for different cells.
+                if column < row:
+                    # Skip all up samping cells.
+                    continue
+                elif column == row:
+                    # The input is the branch output.
+                    x = inputs[row]
+                elif column > row:
+                    # Down sampling, the input is the fusion value of the left cell.
+                    x = fusion_values[row][column - 1]
+
+                fusion_values[row][column] = _fusion_grid[row][column](x)
+
+            # The upsampling operation excutes in the opposite direction.
+            for column in reversed(range(columns)):
+                if column >= row:
+                    # Skip all down samping and identity cells.
+                    continue
+
+                x = fusion_values[row][column + 1]
+                fusion_values[row][column] = _fusion_grid[row][column](x)
+
+        # The fused value for each branch.
+        if rows == 1:
+            outputs = [fusion_values[0][0], fusion_values[0][1]]
+        else:
+            outputs = []
+            fusion_values = [list(v) for v in zip(*fusion_values)]
+
+            for index, values in enumerate(fusion_values):
+                outputs.append(_add_layers_group[index](values))
+
+        return outputs
+
+    return forward
+
+
+def hrnet_body(filters=64):
+    # Stage 1
+    s1_b1 = hrn_1st_stage(filters)
+    s1_fusion = fusion_block(filters, branches_in=1, branches_out=2)
+
+    # Stage 2
+    s2_b1 = hrn_block(filters)
+    s2_b2 = hrn_block(filters*2)
+    s2_fusion = fusion_block(filters, branches_in=2, branches_out=3)
+
+    # Stage 3
+    s3_b1 = hrn_blocks(4, filters)
+    s3_b2 = hrn_blocks(4, filters*2)
+    s3_b3 = hrn_blocks(4, filters*4)
+    s3_fusion = fusion_block(filters, branches_in=3, branches_out=4)
+
+    # Stage 4
+    s4_b1 = hrn_blocks(3, filters)
+    s4_b2 = hrn_blocks(3, filters*2)
+    s4_b3 = hrn_blocks(3, filters*4)
+    s4_b4 = hrn_blocks(3, filters*8)
+
+    def forward(inputs):
+        # Stage 1
+        x = s1_b1(inputs)
+        x = s1_fusion([x])
+        for t in x:
+            print(t.shape)
+
+        # Stage 2
+        x_1 = s2_b1(x[0])
+        x_2 = s2_b2(x[1])
+        x = s2_fusion([x_1, x_2])
+        for t in x:
+            print(t.shape)
+
+        # Stage 3
+        x_1 = s3_b1(x[0])
+        x_2 = s3_b2(x[1])
+        x_3 = s3_b3(x[2])
+        x = s3_fusion([x_1, x_2, x_3])
+        for t in x:
+            print(t.shape)
+
+        # Stage 4
+        x_1 = s4_b1(x[0])
+        x_2 = s4_b2(x[1])
+        x_3 = s4_b3(x[2])
+        x_4 = s4_b4(x[3])
+
+        return [x_1, x_2, x_3, x_4]
+
+    return forward
 
 
 class HRN1stStage(layers.Layer, tfmot.sparsity.keras.PrunableLayer):
@@ -73,15 +278,6 @@ class HRN1stStage(layers.Layer, tfmot.sparsity.keras.PrunableLayer):
         return prunable_weights
 
 
-def hrn_block(inputs, filters=64, activation='relu'):
-    x = residual_block(inputs, filters,  activation=activation)
-    x = residual_block(x, filters,  activation=activation)
-    x = residual_block(x, filters,  activation=activation)
-    x = residual_block(x, filters,  activation=activation)
-
-    return x
-
-
 class HRNBlock(layers.Layer, tfmot.sparsity.keras.PrunableLayer):
     def __init__(self, filters=64, activation='relu', **kwargs):
         super(HRNBlock, self).__init__(**kwargs)
@@ -126,13 +322,6 @@ class HRNBlock(layers.Layer, tfmot.sparsity.keras.PrunableLayer):
         return prunable_weights
 
 
-def hrn_blocks(inputs, repeat=1, filters=64, activation='relu'):
-    for _ in range(repeat):
-        inputs = residual_block(inputs, filters, activation=activation)
-
-    return inputs
-
-
 class HRNBlocks(layers.Layer, tfmot.sparsity.keras.PrunableLayer):
     def __init__(self, repeat=1, filters=64, activation='relu', **kwargs):
         super(HRNBlocks, self).__init__(**kwargs)
@@ -142,7 +331,7 @@ class HRNBlocks(layers.Layer, tfmot.sparsity.keras.PrunableLayer):
         self.activation = activation
 
     def build(self, input_shape):
-        self.blocks = [ResidualBlock(self.filters, False, self.activation)
+        self.blocks = [HRNBlock(self.filters, self.activation)
                        for _ in range(self.repeat)]
 
         self.built = True
@@ -165,24 +354,6 @@ class HRNBlocks(layers.Layer, tfmot.sparsity.keras.PrunableLayer):
                                         for block in self.blocks]))
 
         return prunable_weights
-
-
-def fusion_layer(inputs, filters, upsample=False, activation='relu'):
-    if upsample:
-        x = layers.Conv2D(filters=filters,
-                          kernel_size=(1, 1),
-                          strides=(1, 1),
-                          padding='same')(inputs)
-        x = layers.UpSampling2D(size=(2, 2), interpolation='bilinear')(x)
-    else:
-        x = layers.Conv2D(filters=filters,
-                          kernel_size=(3, 3),
-                          strides=(2, 2),
-                          padding='same')(inputs)
-    x = layers.BatchNormalization()(x)
-    x = layers.Activation(activation)(x)
-
-    return x
 
 
 class FusionLayer(layers.Layer, tfmot.sparsity.keras.PrunableLayer):
@@ -241,10 +412,6 @@ class FusionLayer(layers.Layer, tfmot.sparsity.keras.PrunableLayer):
         return prunable_weights
 
 
-def identity(inputs):
-    return tf.identity(inputs)
-
-
 class Identity(layers.Layer, tfmot.sparsity.keras.PrunableLayer):
     """A identity layer do NOT modify the tensors."""
 
@@ -264,198 +431,118 @@ class Identity(layers.Layer, tfmot.sparsity.keras.PrunableLayer):
         return []
 
 
-def fusion_block(inputs, filters, branches_in, branches_out, activation='relu'):
-    # Construct the fusion layers.
+class FusionBlock(layers.Layer, tfmot.sparsity.keras.PrunableLayer):
+    """A fusion block will fuse multi-resolution inputs.
 
-    rows = branches_in
-    columns = branches_out
+    A typical fusion block looks like a square box with cells. For example at
+    stage 3, the fusion block consists 12 cells. Each cell represents a fusion
+    layer. Every cell whose row < column is a down sampling cell, whose row ==
+    column is a identity cell, and the rest are up sampling cells.
 
-    if rows > 1:
-        _add_layers_group = [layers.Add()
-                             for _ in range(branches_out)]
+             B1         B2         B3         B4
+        |----------|----------|----------|----------|
+    B1  | identity |    ->    |    ->    |    ->    |
+        |----------|----------|----------|----------|
+    B2  |    <-    | identity |    ->    |    ->    |
+        |----------|----------|----------|----------|
+    B3  |    <-    |    <-    | identity |    ->    |
+        |----------|----------|----------|----------|
+    """
 
-    # Every cell in the fusion grid has an output value.
-    fusion_values = [[None for _ in range(columns)] for _ in range(rows)]
+    def __init__(self, filters, branches_in, branches_out, activation='relu', **kwargs):
+        super(FusionBlock, self).__init__(**kwargs)
 
-    for row in range(rows):
-        # The down sampling operation excutes from left to right.
-        for column in range(columns):
-            # The input will be different for different cells.
-            if column < row:
-                # Skip all up samping cells.
-                continue
-            elif column == row:
-                # The input is the branch output.
-                x = inputs[row]
-                fusion_values[row][column] = identity(x)
-            elif column > row:
-                # Down sampling, the input is the fusion value of the left cell.
-                x = fusion_values[row][column - 1]
-                fusion_values[row][column] = fusion_layer(x,
-                                                          filters *
-                                                          pow(2, column),
-                                                          False, activation)
+        self.filters = filters
+        self.branches_in = branches_in
+        self.branches_out = branches_out
+        self.activation = activation
 
-        # The upsampling operation excutes in the opposite direction.
-        for column in reversed(range(columns)):
-            if column >= row:
-                # Skip all down samping and identity cells.
-                continue
-            x = fusion_values[row][column + 1]
-            fusion_values[row][column] = fusion_layer(x,
-                                                      filters * pow(2, column),
-                                                      True, activation)
+    def build(self, input_shape):
+        # Construct the fusion layers.
+        self._fusion_grid = []
 
-    # The fused value for each branch.
-    if rows == 1:
-        outputs = [fusion_values[0][0], fusion_values[0][1]]
-    else:
-        outputs = []
-        fusion_values = [list(v) for v in zip(*fusion_values)]
+        for row in range(self.branches_in):
+            fusion_layers = []
+            for column in range(self.branches_out):
+                if column == row:
+                    fusion_layers.append(Identity())
+                elif column > row:
+                    # Down sampling.
+                    fusion_layers.append(FusionLayer(self.filters * pow(2, column),
+                                                     False, self.activation))
+                else:
+                    # Up sampling.
+                    fusion_layers.append(FusionLayer(self.filters * pow(2, column),
+                                                     True, self.activation))
 
-        for index, values in enumerate(fusion_values):
-            outputs.append(_add_layers_group[index](values))
+            self._fusion_grid.append(fusion_layers)
 
-    return outputs
+        if len(self._fusion_grid) > 1:
+            self._add_layers_group = [layers.Add()
+                                      for _ in range(self.branches_out)]
 
+        self.built = True
 
-# class FusionBlock(layers.Layer, tfmot.sparsity.keras.PrunableLayer):
-#     """A fusion block will fuse multi-resolution inputs.
+    def call(self, inputs):
+        """Fuse the last layer's outputs. The inputs should be a list of the last layers output tensors in order of branches."""
+        rows = len(self._fusion_grid)
+        columns = len(self._fusion_grid[0])
 
-#     A typical fusion block looks like a square box with cells. For example at
-#     stage 3, the fusion block consists 12 cells. Each cell represents a fusion
-#     layer. Every cell whose row < column is a down sampling cell, whose row ==
-#     column is a identity cell, and the rest are up sampling cells.
+        # Every cell in the fusion grid has an output value.
+        fusion_values = [[None for _ in range(columns)] for _ in range(rows)]
 
-#              B1         B2         B3         B4
-#         |----------|----------|----------|----------|
-#     B1  | identity |    ->    |    ->    |    ->    |
-#         |----------|----------|----------|----------|
-#     B2  |    <-    | identity |    ->    |    ->    |
-#         |----------|----------|----------|----------|
-#     B3  |    <-    |    <-    | identity |    ->    |
-#         |----------|----------|----------|----------|
-#     """
+        for row in range(rows):
+            # The down sampling operation excutes from left to right.
+            for column in range(columns):
+                # The input will be different for different cells.
+                if column < row:
+                    # Skip all up samping cells.
+                    continue
+                elif column == row:
+                    # The input is the branch output.
+                    x = inputs[row]
+                elif column > row:
+                    # Down sampling, the input is the fusion value of the left cell.
+                    x = fusion_values[row][column - 1]
+                fusion_values[row][column] = self._fusion_grid[row][column](x)
 
-#     def __init__(self, filters, branches_in, branches_out, activation='relu', **kwargs):
-#         super(FusionBlock, self).__init__(**kwargs)
+            # The upsampling operation excutes in the opposite direction.
+            for column in reversed(range(columns)):
+                if column >= row:
+                    # Skip all down samping and identity cells.
+                    continue
+                x = fusion_values[row][column + 1]
+                fusion_values[row][column] = self._fusion_grid[row][column](x)
 
-#         self.filters = filters
-#         self.branches_in = branches_in
-#         self.branches_out = branches_out
-#         self.activation = activation
+        # The fused value for each branch.
+        if rows == 1:
+            outputs = [fusion_values[0][0], fusion_values[0][1]]
+        else:
+            outputs = []
+            fusion_values = [list(v) for v in zip(*fusion_values)]
 
-#     def build(self, input_shape):
-#         # Construct the fusion layers.
-#         self._fusion_grid = []
+            for index, values in enumerate(fusion_values):
+                outputs.append(self._add_layers_group[index](values))
 
-#         for row in range(self.branches_in):
-#             fusion_layers = []
-#             for column in range(self.branches_out):
-#                 if column == row:
-#                     fusion_layers.append(Identity())
-#                 elif column > row:
-#                     # Down sampling.
-#                     fusion_layers.append(FusionLayer(self.filters * pow(2, column),
-#                                                      False, self.activation))
-#                 else:
-#                     # Up sampling.
-#                     fusion_layers.append(FusionLayer(self.filters * pow(2, column),
-#                                                      True, self.activation))
+        return outputs
 
-#             self._fusion_grid.append(fusion_layers)
+    def get_config(self):
+        config = super(FusionBlock, self).get_config()
+        config.update({"filters": self.filters,
+                       "branches_in": self.branches_in,
+                       "branches_out": self.branches_out,
+                       "activation":  self.activation})
 
-#         if len(self._fusion_grid) > 1:
-#             self._add_layers_group = [layers.Add()
-#                                       for _ in range(self.branches_out)]
+        return config
 
-#         self.built = True
+    def get_prunable_weights(self):
+        prunable_weights = []
+        for _layers in self._fusion_grid:
+            for _layer in _layers:
+                prunable_weights.extend(
+                    list(chain(_layer.get_prunable_weights())))
 
-#     def call(self, inputs):
-#         """Fuse the last layer's outputs. The inputs should be a list of the last layers output tensors in order of branches."""
-#         rows = len(self._fusion_grid)
-#         columns = len(self._fusion_grid[0])
-
-#         # Every cell in the fusion grid has an output value.
-#         fusion_values = [[None for _ in range(columns)] for _ in range(rows)]
-
-#         for row in range(rows):
-#             # The down sampling operation excutes from left to right.
-#             for column in range(columns):
-#                 # The input will be different for different cells.
-#                 if column < row:
-#                     # Skip all up samping cells.
-#                     continue
-#                 elif column == row:
-#                     # The input is the branch output.
-#                     x = inputs[row]
-#                 elif column > row:
-#                     # Down sampling, the input is the fusion value of the left cell.
-#                     x = fusion_values[row][column - 1]
-#                 fusion_values[row][column] = self._fusion_grid[row][column](x)
-
-#             # The upsampling operation excutes in the opposite direction.
-#             for column in reversed(range(columns)):
-#                 if column >= row:
-#                     # Skip all down samping and identity cells.
-#                     continue
-#                 x = fusion_values[row][column + 1]
-#                 fusion_values[row][column] = self._fusion_grid[row][column](x)
-
-#         # The fused value for each branch.
-#         if rows == 1:
-#             outputs = [fusion_values[0][0], fusion_values[0][1]]
-#         else:
-#             outputs = []
-#             fusion_values = [list(v) for v in zip(*fusion_values)]
-
-#             for index, values in enumerate(fusion_values):
-#                 outputs.append(self._add_layers_group[index](values))
-
-#         return outputs
-
-#     def get_config(self):
-#         config = super(FusionBlock, self).get_config()
-#         config.update({"filters": self.filters,
-#                        "branches_in": self.branches_in,
-#                        "branches_out": self.branches_out,
-#                        "activation":  self.activation})
-
-#         return config
-
-#     def get_prunable_weights(self):
-#         prunable_weights = []
-#         for _layers in self._fusion_grid:
-#             for _layer in _layers:
-#                 prunable_weights.extend(
-#                     list(chain(_layer.get_prunable_weights())))
-
-#         return prunable_weights
-
-
-def hrnet_body(inputs, filters=64):
-    # Stage 1
-    x = hrn_1st_stage(inputs, filters)
-    x = fusion_block([x], filters, branches_in=1, branches_out=2)
-
-    # Stage 2
-    x_1 = hrn_block(x[0], filters)
-    x_2 = hrn_block(x[1], filters*2)
-    x = fusion_block([x_1, x_2], filters, branches_in=2, branches_out=3)
-
-    # Stage 3
-    x_1 = hrn_blocks(x[0], 4, filters)
-    x_2 = hrn_blocks(x[1], 4, filters*2)
-    x_3 = hrn_blocks(x[2], 4, filters*4)
-    x = fusion_block([x_1, x_2, x_3], filters, branches_in=3, branches_out=4)
-
-    # Stage 4
-    x_1 = hrn_blocks(x[0], 3, filters)
-    x_2 = hrn_blocks(x[1], 3, filters*2)
-    x_3 = hrn_blocks(x[2], 3, filters*4)
-    x_4 = hrn_blocks(x[3], 3, filters*8)
-
-    return [x_1, x_2, x_3, x_4]
+        return prunable_weights
 
 
 class HRNetBody(layers.Layer, tfmot.sparsity.keras.PrunableLayer):
