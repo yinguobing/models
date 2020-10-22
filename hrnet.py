@@ -46,7 +46,7 @@ def hrn_block(filters=64, activation='relu'):
     return forward
 
 
-def hrn_blocks(inputs, repeat=1, filters=64, activation='relu'):
+def hrn_blocks(repeat=1, filters=64, activation='relu'):
     block_layers = [hrn_block(filters, activation=activation)
                     for _ in range(repeat)]
 
@@ -201,8 +201,6 @@ def hrnet_body(filters=64):
         # Stage 1
         x = s1_b1(inputs)
         x = s1_fusion([x])
-        for t in x:
-            print(t.shape)
 
         # Stage 2
         x_1 = s2_b1(x[0])
@@ -216,8 +214,6 @@ def hrnet_body(filters=64):
         x_2 = s3_b2(x[1])
         x_3 = s3_b3(x[2])
         x = s3_fusion([x_1, x_2, x_3])
-        for t in x:
-            print(t.shape)
 
         # Stage 4
         x_1 = s4_b1(x[0])
