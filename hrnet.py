@@ -7,8 +7,8 @@ import tensorflow_model_optimization as tfmot
 from tensorflow import keras
 from tensorflow.keras import layers
 
-from resnet import (BottleneckBlock, ResidualBlock, bottleneck_block,
-                    residual_block)
+from models.resnet import (BottleneckBlock, ResidualBlock, bottleneck_block,
+                           residual_block)
 
 
 def hrn_1st_stage(filters=64, activation='relu'):
@@ -206,8 +206,6 @@ def hrnet_body(filters=64):
         x_1 = s2_b1(x[0])
         x_2 = s2_b2(x[1])
         x = s2_fusion([x_1, x_2])
-        for t in x:
-            print(t.shape)
 
         # Stage 3
         x_1 = s3_b1(x[0])
