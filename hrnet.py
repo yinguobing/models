@@ -11,6 +11,30 @@ from models.resnet import (BottleneckBlock, ResidualBlock, bottleneck_block,
                            residual_block)
 
 
+class NoOpQuantizeConfig(tfmot.quantization.keras.QuantizeConfig):
+    """Use this config object if the layer has nothing to be quantized for 
+    quantization aware training."""
+
+    def get_weights_and_quantizers(self, layer):
+        return []
+
+    def get_activations_and_quantizers(self, layer):
+        return []
+
+    def set_quantize_weights(self, layer, quantize_weights):
+        pass
+
+    def set_quantize_activations(self, layer, quantize_activations):
+        pass
+
+    def get_output_quantizers(self, layer):
+        # Does not quantize output, since we return an empty list.
+        return []
+
+    def get_config(self):
+        return {}
+
+
 def hrn_1st_stage(filters=64, activation='relu'):
     block_layers = [bottleneck_block(filters=filters),
                     bottleneck_block(filters=filters),
@@ -59,6 +83,17 @@ def hrn_blocks(repeat=1, filters=64, activation='relu'):
     return forward
 
 
+def quant_aware_upsampling2d(size):
+    """Since TFMOT DO NOT support upsampling 2D layer, a walkround is provided."""
+    return tfmot.quantization.keras.quantize_annotate_layer(
+        layers.UpSampling2D(size=size), NoOpQuantizeConfig())
+
+
+def quant_aware_batchnorm():
+    return tfmot.quantization.keras.quantize_annotate_layer(
+        layers.BatchNormalization(), NoOpQuantizeConfig())
+
+
 def fusion_layer(filters, upsample=False, activation='relu'):
     block_layers = []
     if upsample:
@@ -66,16 +101,16 @@ def fusion_layer(filters, upsample=False, activation='relu'):
                                            kernel_size=(1, 1),
                                            strides=(1, 1),
                                            padding='same'),
-                             layers.UpSampling2D(size=(2, 2),
-                                                 interpolation='bilinear')])
+                             quant_aware_upsampling2d(size=(2, 2)),
+                             quant_aware_batchnorm()])
     else:
-        block_layers.append(layers.Conv2D(filters=filters,
-                                          kernel_size=(3, 3),
-                                          strides=(2, 2),
-                                          padding='same'))
+        block_layers.extend([layers.Conv2D(filters=filters,
+                                           kernel_size=(3, 3),
+                                           strides=(2, 2),
+                                           padding='same'),
+                             layers.BatchNormalization()])
 
-    block_layers.extend([layers.BatchNormalization(),
-                         layers.Activation(activation)])
+    block_layers.append(layers.Activation(activation))
 
     def forward(inputs):
         for layer in block_layers:
@@ -84,6 +119,12 @@ def fusion_layer(filters, upsample=False, activation='relu'):
         return inputs
 
     return forward
+
+
+def quant_aware_identity():
+    """Use `layers.Layer` as a substitution for identity layer."""
+    return tfmot.quantization.keras.quantize_annotate_layer(layers.Layer(),
+                                                            NoOpQuantizeConfig())
 
 
 def fusion_block(filters, branches_in, branches_out, activation='relu'):
@@ -113,7 +154,7 @@ def fusion_block(filters, branches_in, branches_out, activation='relu'):
         _fusion_layers = []
         for column in range(columns):
             if column == row:
-                _fusion_layers.append(tf.identity)
+                _fusion_layers.append(quant_aware_identity())
             elif column > row:
                 # Down sampling.
                 _fusion_layers.append(fusion_layer(filters * pow(2, column),
