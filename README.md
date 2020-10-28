@@ -3,7 +3,7 @@ A playground for friendly deep neural network models.
 
 These models are friendly, which means they are easy to understand, especially for beginners.
 
-## Current members:
+## Current members
 - ResNet
 - HRNet
 - BlazeNet (like Google's BlazeFace)
