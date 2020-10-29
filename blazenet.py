@@ -15,12 +15,14 @@ def zero_channel_padding(channels_to_pad):
     return forward
 
 
-def blaze_block(filters):
+def blaze_block(filters, strides=(1, 1)):
     block_layers = [
         layers.DepthwiseConv2D(kernel_size=(5, 5),
-                               padding='valid'),
+                               strides=strides,
+                               padding='same'),
         layers.Conv2D(filters=filters,
-                      kernel_size=(1, 1))]
+                      kernel_size=(1, 1),
+                      padding='same')]
 
     def forward(inputs):
         x = inputs
@@ -29,13 +31,16 @@ def blaze_block(filters):
 
         # Optional layers
         inputs = layers.MaxPool2D(pool_size=(5, 5),
-                                  strides=(1, 1))(inputs)
+                                  strides=strides,
+                                  padding='same')(inputs)
         channels_to_pad = filters - inputs.shape.as_list()[3]
 
         if channels_to_pad > 0:
             inputs = zero_channel_padding(channels_to_pad)(inputs)
         elif channels_to_pad < 0:
-            inputs = layers.Conv2D(filters, (1, 1))(inputs)
+            inputs = layers.Conv2D(filters=filters,
+                                   kernel_size=(1, 1),
+                                   padding='same')(inputs)
 
         # Shortcut connection.
         shortcut = layers.Add()([x, inputs])
