@@ -16,7 +16,6 @@ def zero_channel_padding(channels_to_pad):
 
 
 def blaze_block(filters):
-    print("Fun in++++++++++++++++++++++", filters)
     block_layers = [
         layers.DepthwiseConv2D(kernel_size=(5, 5),
                                padding='valid'),
@@ -39,6 +38,7 @@ def blaze_block(filters):
             inputs = layers.Conv2D(filters, (1, 1))(inputs)
 
         # Shortcut connection.
-        return layers.Add()([x, inputs])
+        shortcut = layers.Add()([x, inputs])
+        return layers.Activation("relu")(shortcut)
 
     return forward
