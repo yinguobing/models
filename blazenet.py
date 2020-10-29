@@ -22,7 +22,8 @@ def blaze_block(filters, strides=(1, 1)):
                                padding='same'),
         layers.Conv2D(filters=filters,
                       kernel_size=(1, 1),
-                      padding='same')]
+                      padding='same'),
+        layers.BatchNormalization()]
 
     def forward(inputs):
         x = inputs
@@ -41,6 +42,7 @@ def blaze_block(filters, strides=(1, 1)):
             inputs = layers.Conv2D(filters=filters,
                                    kernel_size=(1, 1),
                                    padding='same')(inputs)
+            inputs = layers.BatchNormalization()(inputs)
 
         # Shortcut connection.
         shortcut = layers.Add()([x, inputs])
