@@ -26,6 +26,17 @@ class TestShuffleNetV2(unittest.TestCase):
         bs, h, w, c = x.shape
         self.assertListEqual([bs, h/2, w/2, c*2], y.shape.as_list())
 
+    def test_filters(self):
+        """Number of channels could be set by user combined with downsampling."""
+        x = tf.random.normal((8, 64, 48, 256))
+
+        y = shuffle_unit_v2(0.5, True, 32)(x)
+        bs, h, w, _ = x.shape
+        self.assertListEqual([bs, h/2, w/2, 32], y.shape.as_list())
+
+        y = shuffle_unit_v2(0.5, False, 32)(x)
+        self.assertEqual(x.shape, y.shape)
+
 
 if __name__ == "__main__":
     unittest.main()

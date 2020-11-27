@@ -5,7 +5,7 @@ from tensorflow import keras
 from tensorflow.keras import layers
 
 
-def shuffle_unit_v2(split=0.5, downsampling=False):
+def shuffle_unit_v2(split=0.5, downsampling=False, filters=None):
     """
     Build building blocks for ShuffleNet v2.
 
@@ -14,6 +14,8 @@ def shuffle_unit_v2(split=0.5, downsampling=False):
             the total input channels should be split into the identity path.
             This argument will be ignored when downsampling is True.
         downsampling: whether to downsample the input feature map by half.
+        filters: number of output channels. Default is 'None` meaning channel
+            number not changed. It only works with downsampling.
 
     Returns:
         a callable ShuffleNet v2 block.
@@ -36,14 +38,14 @@ def shuffle_unit_v2(split=0.5, downsampling=False):
             x_idn = inputs
             x_conv = inputs
 
-            # Number of filters equals to the input channels.
-            filters = num_input_channels
+            # Number of filters equals to the input channels, or manually set.
+            _filters = filters/2 if filters else num_input_channels
 
             # Build downsampling layers for identity path.
             identity_path_layers = [keras.layers.DepthwiseConv2D(3, strides, 'same'),
                                     keras.layers.BatchNormalization(),
                                     keras.layers.Conv2D(
-                                    filters, 1, padding='same'),
+                                    _filters, 1, padding='same'),
                                     keras.layers.BatchNormalization(),
                                     keras.layers.ReLU()]
         else:
@@ -59,18 +61,18 @@ def shuffle_unit_v2(split=0.5, downsampling=False):
             x_conv = inputs[:, :, :, num_identity:]
 
             # Number of filters equal to the conv path channels.
-            filters = num_input_channels - num_identity
+            _filters = num_input_channels - num_identity
 
             # Build downsampling layers for identity path.
             identity_path_layers = []
 
         # Build layers for convolutional path.
-        conv_path_layers = [keras.layers.Conv2D(filters, 1, padding='same'),
+        conv_path_layers = [keras.layers.Conv2D(_filters, 1, padding='same'),
                             keras.layers.BatchNormalization(),
                             keras.layers.ReLU(),
                             keras.layers.DepthwiseConv2D(3, strides, 'same'),
                             keras.layers.BatchNormalization(),
-                            keras.layers.Conv2D(filters, 1, padding='same'),
+                            keras.layers.Conv2D(_filters, 1, padding='same'),
                             keras.layers.BatchNormalization(),
                             keras.layers.ReLU()]
 
