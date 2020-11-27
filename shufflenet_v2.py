@@ -106,8 +106,8 @@ def shuffle(x, groups=2):
     batch_size, height, width, channels = x.shape
     channels_per_group = channels // groups
 
-    x = tf.reshape(x, (batch_size, height, width, groups, channels_per_group))
+    x = tf.reshape(x, (-1, height, width, groups, channels_per_group))
     x = tf.transpose(x, [0, 1, 2, 4, 3])
-    x = tf.reshape(x, (batch_size, height, width, -1))
+    x = tf.reshape(x, (-1, height, width, channels))
 
     return x
