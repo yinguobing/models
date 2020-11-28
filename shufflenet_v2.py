@@ -103,11 +103,12 @@ def shuffle(x, groups=2):
     Returns:
         a shuffled tensor.
     """
-    batch_size, height, width, channels = x.shape
+    batch_size, height, width, _ = tf.shape(x)
+    _, _, _, channels = x.shape
     channels_per_group = channels // groups
 
-    x = tf.reshape(x, (-1, height, width, groups, channels_per_group))
+    x = tf.reshape(x, [batch_size, height, width, groups, channels_per_group])
     x = tf.transpose(x, [0, 1, 2, 4, 3])
-    x = tf.reshape(x, (-1, height, width, channels))
+    x = tf.reshape(x, [batch_size, height, width, channels])
 
     return x
