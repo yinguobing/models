@@ -30,7 +30,7 @@ def shuffle_unit_v2(split=0.5, downsampling=False, filters=None):
     def forward(inputs):
         # Input channels will be split in two paths. One for identity path and
         # the other for conv path. Assume the inputs are `CHANNEL LAST`.
-        batch_size, height, width, num_input_channels = inputs.shape
+        _, _, _, num_input_channels = inputs.shape
 
         # Channel split is not applied while downsampling.
         if downsampling:
