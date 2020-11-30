@@ -103,6 +103,10 @@ def shuffle(x, groups=2):
     Returns:
         a shuffled tensor.
     """
+    # The shape of the inputs is dynamic since we are going to implement a fully
+    # convolutional network. The number of channels， however, is static and
+    # could be inferred at graph define time. For more:
+    # https://pgaleone.eu/tensorflow/2018/07/28/understanding-tensorflow-tensors-shape-static-dynamic/
     batch_size, height, width, _ = tf.shape(x)
     _, _, _, channels = x.shape
     channels_per_group = channels // groups
