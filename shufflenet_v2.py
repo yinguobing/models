@@ -30,7 +30,7 @@ def shuffle_unit_v2(split=0.5, downsampling=False, filters=None):
     def forward(inputs):
         # Input channels will be split in two paths. One for identity path and
         # the other for conv path. Assume the inputs are `CHANNEL LAST`.
-        batch_size, height, width, num_input_channels = inputs.shape
+        _, _, _, num_input_channels = inputs.shape
 
         # Channel split is not applied while downsampling.
         if downsampling:
@@ -103,11 +103,16 @@ def shuffle(x, groups=2):
     Returns:
         a shuffled tensor.
     """
-    batch_size, height, width, channels = x.shape
+    # The shape of the inputs is dynamic since we are going to implement a fully
+    # convolutional network. The number of channels， however, is static and
+    # could be inferred at graph define time. For more:
+    # https://pgaleone.eu/tensorflow/2018/07/28/understanding-tensorflow-tensors-shape-static-dynamic/
+    batch_size, height, width, _ = tf.shape(x)
+    _, _, _, channels = x.shape
     channels_per_group = channels // groups
 
-    x = tf.reshape(x, (batch_size, height, width, groups, channels_per_group))
+    x = tf.reshape(x, [batch_size, height, width, groups, channels_per_group])
     x = tf.transpose(x, [0, 1, 2, 4, 3])
-    x = tf.reshape(x, (batch_size, height, width, -1))
+    x = tf.reshape(x, [batch_size, height, width, channels])
 
     return x
