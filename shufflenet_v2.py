@@ -51,7 +51,7 @@ def shuffle_unit_v2(split=0.5, downsampling=False, filters=None):
         else:
             # Split channels.
             num_identity = tf.cast(
-                tf.math.ceil(num_input_channels * split), tf.int32)
+                tf.math.ceil(num_input_channels * split), tf.int32).numpy()
 
             # Avoid edge condition in which spliting channels failed.
             if num_identity == num_input_channels:
